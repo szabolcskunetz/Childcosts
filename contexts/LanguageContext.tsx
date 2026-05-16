@@ -165,7 +165,15 @@ const translations: Record<Language, Record<string, string>> = {
     colorUpdated: 'Color updated successfully',
     logout: 'Logout',
     logoutConfirm: 'Are you sure you want to logout?',
-    
+    deleteAccount: 'Delete account',
+    deleteAccountHint: 'Permanently delete your account and all projects, participants, expenses, and settlements you created. This cannot be undone.',
+    deleteAccountConfirm: 'This will permanently delete your account and all data you created (projects, participants, expenses, settlements). This action cannot be undone. Continue?',
+    deleteAccountFinalTitle: 'Are you absolutely sure?',
+    deleteAccountFinalConfirm: 'Your account and all associated data will be permanently deleted. This is irreversible.',
+    accountDeleted: 'Your account has been deleted.',
+    continue: 'Continue',
+    deleting: 'Deleting…',
+
     // Auth
     login: 'Login',
     signup: 'Sign Up',
@@ -324,7 +332,15 @@ const translations: Record<Language, Record<string, string>> = {
     colorUpdated: 'Szín sikeresen frissítve',
     logout: 'Kijelentkezés',
     logoutConfirm: 'Biztosan ki szeretnél jelentkezni?',
-    
+    deleteAccount: 'Fiók törlése',
+    deleteAccountHint: 'Véglegesen törli a fiókját és minden Ön által létrehozott projektet, résztvevőt, költséget és elszámolást. Ez nem visszavonható.',
+    deleteAccountConfirm: 'Ez véglegesen törli a fiókját és minden adatát (projektek, résztvevők, költségek, elszámolások). A művelet nem visszavonható. Folytatja?',
+    deleteAccountFinalTitle: 'Biztosan végleg törölni szeretné?',
+    deleteAccountFinalConfirm: 'A fiókja és minden kapcsolódó adata véglegesen törlésre kerül. Ez visszafordíthatatlan.',
+    accountDeleted: 'A fiókja törölve lett.',
+    continue: 'Folytatás',
+    deleting: 'Törlés…',
+
     // Auth
     login: 'Bejelentkezés',
     signup: 'Regisztráció',
@@ -471,7 +487,15 @@ const translations: Record<Language, Record<string, string>> = {
     colorsReset: 'Farben auf Standard zurückgesetzt',
     logout: 'Abmelden',
     logoutConfirm: 'Möchten Sie sich wirklich abmelden?',
-    
+    deleteAccount: 'Konto löschen',
+    deleteAccountHint: 'Löscht Ihr Konto und alle von Ihnen erstellten Projekte, Teilnehmer, Ausgaben und Abrechnungen endgültig. Diese Aktion kann nicht rückgängig gemacht werden.',
+    deleteAccountConfirm: 'Dadurch werden Ihr Konto und alle Ihre Daten (Projekte, Teilnehmer, Ausgaben, Abrechnungen) dauerhaft gelöscht. Fortfahren?',
+    deleteAccountFinalTitle: 'Sind Sie absolut sicher?',
+    deleteAccountFinalConfirm: 'Ihr Konto und alle zugehörigen Daten werden endgültig gelöscht. Dies ist nicht rückgängig zu machen.',
+    accountDeleted: 'Ihr Konto wurde gelöscht.',
+    continue: 'Fortfahren',
+    deleting: 'Wird gelöscht…',
+
     // Auth
     login: 'Anmelden',
     signup: 'Registrieren',
@@ -618,7 +642,15 @@ const translations: Record<Language, Record<string, string>> = {
     colorsReset: 'Colores restablecidos a predeterminados',
     logout: 'Cerrar sesión',
     logoutConfirm: '¿Está seguro de que desea cerrar sesión?',
-    
+    deleteAccount: 'Eliminar cuenta',
+    deleteAccountHint: 'Elimina permanentemente tu cuenta y todos los proyectos, participantes, gastos y liquidaciones que creaste. Esta acción no se puede deshacer.',
+    deleteAccountConfirm: 'Esto eliminará permanentemente tu cuenta y todos tus datos (proyectos, participantes, gastos, liquidaciones). Esta acción no se puede deshacer. ¿Continuar?',
+    deleteAccountFinalTitle: '¿Está absolutamente seguro?',
+    deleteAccountFinalConfirm: 'Tu cuenta y todos los datos asociados se eliminarán permanentemente. Esto es irreversible.',
+    accountDeleted: 'Tu cuenta ha sido eliminada.',
+    continue: 'Continuar',
+    deleting: 'Eliminando…',
+
     // Auth
     login: 'Iniciar sesión',
     signup: 'Registrarse',

@@ -19,7 +19,7 @@ import { useCustomTheme } from '@/contexts/ThemeContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'expo-router';
 import Modal from '@/components/ui/Modal';
-import { participantsApi, Participant } from '@/utils/api';
+import { participantsApi, authApi, Participant } from '@/utils/api';
 import { useProject } from '@/contexts/ProjectContext';
 
 export default function SettingsScreen() {
@@ -36,6 +36,10 @@ export default function SettingsScreen() {
   const [editingParticipant, setEditingParticipant] = useState<Participant | null>(null);
   const [successModal, setSuccessModal] = useState({ visible: false, message: '' });
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showDeleteAccountConfirm, setShowDeleteAccountConfirm] = useState(false);
+  const [showDeleteAccountFinalConfirm, setShowDeleteAccountFinalConfirm] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [errorModal, setErrorModal] = useState({ visible: false, message: '' });
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [loadingParticipants, setLoadingParticipants] = useState(true);
 
@@ -116,6 +120,24 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleDeleteAccount = async () => {
+    setDeletingAccount(true);
+    try {
+      console.log('User deleting account');
+      await authApi.deleteAccount();
+      // Clear local session after server-side deletion succeeds
+      await signOut();
+      setShowDeleteAccountFinalConfirm(false);
+      setSuccessModal({ visible: true, message: t('accountDeleted') || 'Your account has been deleted.' });
+    } catch (error: any) {
+      console.error('Account deletion failed:', error);
+      setShowDeleteAccountFinalConfirm(false);
+      setErrorModal({ visible: true, message: error?.message || t('error') });
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
   const currentLanguage = languages.find((l) => l.code === language);
 
   return (
@@ -155,6 +177,20 @@ export default function SettingsScreen() {
               <IconSymbol ios_icon_name="arrow.right.square" android_material_icon_name="logout" size={20} color="#fff" />
               <Text style={styles.logoutButtonText}>{t('logout')}</Text>
             </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.deleteAccountButton}
+              onPress={() => setShowDeleteAccountConfirm(true)}
+            >
+              <IconSymbol ios_icon_name="trash" android_material_icon_name="delete-forever" size={18} color="#dc2626" />
+              <Text style={styles.deleteAccountButtonText}>
+                {t('deleteAccount') || 'Delete account'}
+              </Text>
+            </TouchableOpacity>
+            <Text style={[styles.sectionNote, { color: theme.dark ? '#98989D' : '#666', marginTop: 4 }]}>
+              {t('deleteAccountHint') ||
+                'Permanently delete your account and all projects, participants, expenses, and settlements you created. This cannot be undone.'}
+            </Text>
           </>
         ) : (
           <TouchableOpacity
@@ -443,6 +479,48 @@ export default function SettingsScreen() {
         onConfirm={handleLogout}
       />
 
+      {/* Delete Account — first confirmation */}
+      <Modal
+        visible={showDeleteAccountConfirm}
+        onClose={() => setShowDeleteAccountConfirm(false)}
+        title={t('deleteAccount') || 'Delete account'}
+        message={
+          t('deleteAccountConfirm') ||
+          'This will permanently delete your account and all data you created (projects, participants, expenses, settlements). This action cannot be undone. Continue?'
+        }
+        type="confirm"
+        confirmText={t('continue') || 'Continue'}
+        confirmColor="#dc2626"
+        onConfirm={() => {
+          setShowDeleteAccountConfirm(false);
+          setShowDeleteAccountFinalConfirm(true);
+        }}
+      />
+
+      {/* Delete Account — final confirmation */}
+      <Modal
+        visible={showDeleteAccountFinalConfirm}
+        onClose={() => !deletingAccount && setShowDeleteAccountFinalConfirm(false)}
+        title={t('deleteAccountFinalTitle') || 'Are you absolutely sure?'}
+        message={
+          t('deleteAccountFinalConfirm') ||
+          'Your account and all associated data will be permanently deleted. This is irreversible.'
+        }
+        type="confirm"
+        confirmText={deletingAccount ? (t('deleting') || 'Deleting…') : (t('deleteAccount') || 'Delete account')}
+        confirmColor="#dc2626"
+        onConfirm={handleDeleteAccount}
+      />
+
+      {/* Error Modal */}
+      <Modal
+        visible={errorModal.visible}
+        onClose={() => setErrorModal({ visible: false, message: '' })}
+        title={t('error')}
+        message={errorModal.message}
+        type="alert"
+      />
+
       {/* Success Modal */}
       <Modal
         visible={successModal.visible}
@@ -553,6 +631,22 @@ const styles = StyleSheet.create({
   logoutButtonText: {
     color: '#fff',
     fontSize: 16,
+    fontWeight: '600',
+  },
+  deleteAccountButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#dc2626',
+    marginBottom: 6,
+  },
+  deleteAccountButtonText: {
+    color: '#dc2626',
+    fontSize: 15,
     fontWeight: '600',
   },
   languageList: {

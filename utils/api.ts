@@ -368,6 +368,16 @@ export interface WhoOwesWhomItem {
  * Expenses API
  * Handles all expense-related operations
  */
+export const authApi = {
+  /**
+   * Permanently delete the authenticated user's account and all data they created.
+   * Required for Apple Guideline 5.1.1(v) and Google Play account-deletion policy.
+   */
+  deleteAccount: async (): Promise<{ success: boolean }> => {
+    return authenticatedApiCall<{ success: boolean }>('/api/auth/account', { method: 'DELETE' });
+  },
+};
+
 export const projectsApi = {
   getAll: async (): Promise<Project[]> => apiGet<Project[]>('/api/projects'),
   create: async (name: string, createdBy?: string | null): Promise<Project> =>
