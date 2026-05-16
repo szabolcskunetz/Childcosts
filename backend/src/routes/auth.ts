@@ -8,6 +8,37 @@ export function registerAuthRoutes(app: App) {
   // Better Auth provides standard auth endpoints at /api/auth/*
   // (sign-up, sign-in, verify-email, reset-password, etc.)
 
+  // GET /api/auth/debug-config — diagnostic only.
+  // Reports whether OAuth env vars are present on the deployment.
+  // Does NOT expose the actual values.
+  app.fastify.get('/api/auth/debug-config', async () => {
+    return {
+      providers: {
+        google: {
+          clientIdSet: !!process.env.GOOGLE_CLIENT_ID,
+          clientSecretSet: !!process.env.GOOGLE_CLIENT_SECRET,
+          clientIdLength: (process.env.GOOGLE_CLIENT_ID || '').length,
+        },
+        apple: {
+          clientIdSet: !!process.env.APPLE_CLIENT_ID,
+          clientSecretSet: !!process.env.APPLE_CLIENT_SECRET,
+        },
+        github: {
+          clientIdSet: !!process.env.GITHUB_CLIENT_ID,
+          clientSecretSet: !!process.env.GITHUB_CLIENT_SECRET,
+        },
+      },
+      nodeEnv: process.env.NODE_ENV || null,
+      // Surface a few platform-provided env var names if they exist
+      // so we can detect whether Natively/Specular sets anything obvious.
+      platformHints: Object.keys(process.env)
+        .filter((k) =>
+          /natively|newly|specular|specific|google|oauth|client/i.test(k)
+        )
+        .sort(),
+    };
+  });
+
   // DELETE /api/auth/account
   // Permanently delete the authenticated user's account and all data they created.
   // Required for Apple Guideline 5.1.1(v) and Google Play account-deletion policy.
