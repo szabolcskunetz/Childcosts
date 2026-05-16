@@ -1,0 +1,43 @@
+name: Copyright headers
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  # Avoid pile-ups if Natively pushes several commits in a row.
+  group: copyright-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  fix-headers:
+    runs-on: ubuntu-latest
+    # Skip our own auto-fix commits so we never loop forever.
+    if: "!contains(github.event.head_commit.message, '[copyright auto-fix]')"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Add missing copyright headers
+        run: node scripts/copyright.mjs
+
+      - name: Commit and push if anything changed
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add -A
+            git commit -m "Restore copyright headers [copyright auto-fix]"
+            git push
+          else
+            echo "All headers already in place."
+          fi

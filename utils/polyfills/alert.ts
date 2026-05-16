@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 import { Alert } from 'react-native';
 import { polyfillGlobal } from 'react-native/Libraries/Utilities/PolyfillFunctions';
 
