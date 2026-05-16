@@ -164,7 +164,7 @@ See `AUTHENTICATION_TESTING_GUIDE.md` for detailed testing instructions.
 
 ## 📊 Integration Status
 
-**Backend API:** https://tb5km885qjzejxbpfd439jdjndereaed.app.specular.dev
+**Backend API:** https://gssjrfqxy8zxa6mxa6n23zptexakseae.app.specular.dev
 
 **Endpoints Integrated:** 18/18 ✅
 

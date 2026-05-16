@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "ChildCosts",
-    "slug": "ChildCosts",
+    "slug": "childcosts",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/ChildCosts.png",
@@ -52,13 +52,13 @@
       "expo-router",
       "expo-web-browser"
     ],
-    "scheme": "ChildCosts",
+    "scheme": "childcosts",
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
       "router": {},
-      "backendUrl": "https://tb5km885qjzejxbpfd439jdjndereaed.app.specular.dev"
+      "backendUrl": "https://gssjrfqxy8zxa6mxa6n23zptexakseae.app.specular.dev"
     }
   }
 }

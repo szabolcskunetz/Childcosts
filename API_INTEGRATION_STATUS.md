@@ -2,7 +2,7 @@
 # 📊 API Integration Status
 
 ## ✅ Backend API
-**URL:** https://tb5km885qjzejxbpfd439jdjndereaed.app.specular.dev
+**URL:** https://gssjrfqxy8zxa6mxa6n23zptexakseae.app.specular.dev
 
 ## 🔐 Authentication Endpoints
 
