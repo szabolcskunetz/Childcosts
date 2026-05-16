@@ -23,6 +23,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useCustomTheme } from "@/contexts/ThemeContext";
 import { downloadFile } from "@/utils/fileDownload";
 import { useAuth } from "@/contexts/AuthContext";
+import { useProject } from "@/contexts/ProjectContext";
 import { useFocusEffect } from "@react-navigation/native";
 
 export default function ExpensesScreen() {
@@ -30,6 +31,7 @@ export default function ExpensesScreen() {
   const { t } = useLanguage();
   const { customColors, getParticipantColor } = useCustomTheme();
   const { user, localUserId, allUserIds } = useAuth();
+  const { activeProject, activeProjectId } = useProject();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [loading, setLoading] = useState(true);
@@ -83,15 +85,21 @@ export default function ExpensesScreen() {
   });
 
   const loadData = useCallback(async () => {
+    if (!activeProjectId) {
+      setExpenses([]);
+      setParticipants([]);
+      setLoading(false);
+      return;
+    }
     try {
-      console.log('[Expenses] Loading data... User:', user?.id || 'not logged in', 'Local User ID:', localUserId || 'none');
+      console.log('[Expenses] Loading data for project:', activeProjectId);
       const [expensesData, participantsData] = await Promise.all([
-        expensesApi.getAll({
+        expensesApi.getAll(activeProjectId, {
           search: searchQuery || undefined,
           minAmount: minAmount ? parseFloat(minAmount) : undefined,
           maxAmount: maxAmount ? parseFloat(maxAmount) : undefined,
         }),
-        participantsApi.getAll(),
+        participantsApi.getAll(activeProjectId),
       ]);
       
       console.log('[Expenses] Loaded expenses:', expensesData.length);
@@ -129,7 +137,7 @@ export default function ExpensesScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [searchQuery, minAmount, maxAmount, t, user, localUserId]);
+  }, [searchQuery, minAmount, maxAmount, t, user, localUserId, activeProjectId]);
 
   useEffect(() => {
     loadData();
@@ -197,7 +205,11 @@ export default function ExpensesScreen() {
         finalSplitPercentage = percentageValue;
       }
 
-      console.log('[Expense] Creating expense by user:', createdByUserId || 'anonymous', 'splitMode:', splitMode, 'splitPercentage:', finalSplitPercentage);
+      if (!activeProjectId) {
+        setErrorModal({ visible: true, message: 'No active project selected' });
+        return;
+      }
+      console.log('[Expense] Creating expense in project:', activeProjectId);
       await expensesApi.create({
         description: newExpense.description,
         amount: parseFloat(newExpense.amount),
@@ -205,6 +217,7 @@ export default function ExpensesScreen() {
         paidBy: newExpense.paidBy,
         splitPercentage: finalSplitPercentage,
         createdBy: createdByUserId,
+        projectId: activeProjectId,
       });
 
       setSuccessModal({ visible: true, message: t('expenseAdded') });
@@ -324,7 +337,11 @@ export default function ExpensesScreen() {
       console.log('[Expenses] User tapped Delete All Expenses button');
       setDeleteAllLoading(true);
       
-      const result = await expensesApi.deleteAll();
+      if (!activeProjectId) {
+        setErrorModal({ visible: true, message: 'No active project selected' });
+        return;
+      }
+      const result = await expensesApi.deleteAll(activeProjectId);
       
       const deletedCountText = result.deletedCount.toString();
       const successMessage = `${t('deleteAllSuccess')} ${deletedCountText} ${t('expenses').toLowerCase()}`;
@@ -348,8 +365,12 @@ export default function ExpensesScreen() {
       }
 
       const createdByUserId = user?.id || localUserId || null;
-      console.log('[Participant] Adding participant:', newParticipant, 'by user:', createdByUserId || 'anonymous');
-      await participantsApi.create(newParticipant, createdByUserId);
+      if (!activeProjectId) {
+        setErrorModal({ visible: true, message: 'No active project selected' });
+        return;
+      }
+      console.log('[Participant] Adding participant to project:', activeProjectId);
+      await participantsApi.create(activeProjectId, newParticipant, createdByUserId);
       setSuccessModal({ visible: true, message: t('participantAdded') });
       setShowAddParticipant(false);
       setNewParticipant("");
@@ -367,6 +388,10 @@ export default function ExpensesScreen() {
         return;
       }
 
+      if (!activeProjectId) {
+        setErrorModal({ visible: true, message: 'No active project selected' });
+        return;
+      }
       console.log('[Settlement] Adding settlement:', newSettlement);
       await settlementsApi.create({
         fromParticipant: newSettlement.fromParticipant,
@@ -374,6 +399,7 @@ export default function ExpensesScreen() {
         amount: parseFloat(newSettlement.amount),
         date: new Date().toISOString(),
         description: newSettlement.description,
+        projectId: activeProjectId,
       });
 
       setSuccessModal({ visible: true, message: t('settlementRecorded') });
@@ -393,8 +419,12 @@ export default function ExpensesScreen() {
 
   const handleExportAll = async () => {
     try {
+      if (!activeProjectId) {
+        setErrorModal({ visible: true, message: 'No active project selected' });
+        return;
+      }
       console.log('[Export] Starting export all...');
-      const csv = await expensesApi.export();
+      const csv = await expensesApi.export(activeProjectId);
       const fileName = `expenses_all_${new Date().toISOString().split('T')[0]}.csv`;
       
       await downloadFile(csv, fileName, 'text/csv');
@@ -480,8 +510,12 @@ export default function ExpensesScreen() {
       const file = result.assets[0];
       console.log('[Import] Selected file:', file.name, 'Type:', file.mimeType, 'URI:', file.uri);
       
+      if (!activeProjectId) {
+        setErrorModal({ visible: true, message: 'No active project selected' });
+        return;
+      }
       setImportLoading(true);
-      const importResult = await expensesApi.import({
+      const importResult = await expensesApi.import(activeProjectId, {
         uri: file.uri,
         name: file.name,
         type: file.mimeType || 'text/csv',

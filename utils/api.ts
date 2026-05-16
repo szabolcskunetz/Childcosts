@@ -301,10 +301,18 @@ export const authenticatedDelete = async <T = any>(endpoint: string): Promise<T>
 // TYPE DEFINITIONS
 // ============================================================================
 
+export interface Project {
+  id: string;
+  name: string;
+  createdBy?: string | null;
+  createdAt: string;
+}
+
 export interface Participant {
   id: string;
   name: string;
   color?: string;
+  projectId?: string;
   createdAt: string;
   createdBy?: string | { id: string } | null;
 }
@@ -359,33 +367,36 @@ export interface WhoOwesWhomItem {
  * Expenses API
  * Handles all expense-related operations
  */
+export const projectsApi = {
+  getAll: async (): Promise<Project[]> => apiGet<Project[]>('/api/projects'),
+  create: async (name: string, createdBy?: string | null): Promise<Project> =>
+    apiPost<Project>('/api/projects', { name, createdBy: createdBy ?? null }),
+  rename: async (id: string, name: string): Promise<Project> =>
+    apiPut<Project>(`/api/projects/${id}`, { name }),
+  delete: async (id: string): Promise<void> => apiDelete<void>(`/api/projects/${id}`),
+};
+
 export const expensesApi = {
   /**
-   * Get all expenses with optional filters
+   * Get expenses for a project
    */
-  getAll: async (filters?: { search?: string; minAmount?: number; maxAmount?: number }): Promise<Expense[]> => {
+  getAll: async (projectId: string, filters?: { search?: string; minAmount?: number; maxAmount?: number }): Promise<Expense[]> => {
     const params = new URLSearchParams();
+    params.append('projectId', projectId);
     if (filters?.search) params.append('search', filters.search);
     if (filters?.minAmount !== undefined) params.append('minAmount', filters.minAmount.toString());
     if (filters?.maxAmount !== undefined) params.append('maxAmount', filters.maxAmount.toString());
-    
-    const queryString = params.toString();
-    const endpoint = queryString ? `/api/expenses?${queryString}` : '/api/expenses';
-    
-    return apiGet<Expense[]>(endpoint);
+    return apiGet<Expense[]>(`/api/expenses?${params.toString()}`);
   },
 
-  /**
-   * Create a new expense
-   * @param expense - Expense data including createdBy (user ID or null for anonymous)
-   */
-  create: async (expense: { 
-    description: string; 
-    amount: number; 
-    date: string; 
+  create: async (expense: {
+    description: string;
+    amount: number;
+    date: string;
     paidBy: string;
-    splitPercentage: number; 
+    splitPercentage: number;
     createdBy: string | null;
+    projectId: string;
   }): Promise<Expense> => {
     return apiPost<Expense>('/api/expenses', expense);
   },
@@ -411,26 +422,22 @@ export const expensesApi = {
   },
 
   /**
-   * Delete all expenses
-   * @returns Object with success status and count of deleted expenses
+   * Delete all expenses for a project
    */
-  deleteAll: async (): Promise<{ success: boolean; deletedCount: number }> => {
-    console.log('[API] Deleting all expenses');
-    return apiDelete<{ success: boolean; deletedCount: number }>('/api/expenses/all');
+  deleteAll: async (projectId: string): Promise<{ success: boolean; deletedCount: number }> => {
+    return apiDelete<{ success: boolean; deletedCount: number }>(`/api/expenses/all?projectId=${projectId}`);
   },
 
   /**
-   * Export expenses to CSV or Excel
-   * @param format - Export format: 'csv' or 'xlsx' (default: 'csv')
-   * @param ids - Optional comma-separated list of expense IDs to export
-   * @returns Blob containing the exported file
+   * Export expenses (project-scoped) to CSV or Excel
    */
-  export: async (format: 'csv' | 'xlsx' = 'csv', ids?: string): Promise<Blob> => {
+  export: async (projectId: string, format: 'csv' | 'xlsx' = 'csv', ids?: string): Promise<Blob> => {
     if (!isBackendConfigured()) {
       throw new Error("Backend URL not configured. Please rebuild the app.");
     }
 
     const params = new URLSearchParams();
+    params.append('projectId', projectId);
     params.append('format', format);
     if (ids) {
       params.append('ids', ids);
@@ -455,16 +462,14 @@ export const expensesApi = {
   },
 
   /**
-   * Import expenses from CSV or Excel
-   * @param file - File object with uri, name, and type
-   * @returns Import result with count of imported expenses and any errors
+   * Import expenses from CSV or Excel into a project
    */
-  import: async (file: { uri: string; name: string; type: string }): Promise<{ imported: number; errors: string[] }> => {
+  import: async (projectId: string, file: { uri: string; name: string; type: string }): Promise<{ imported: number; errors: string[] }> => {
     if (!isBackendConfigured()) {
       throw new Error("Backend URL not configured. Please rebuild the app.");
     }
 
-    console.log('[Import] Preparing file upload:', file.name, file.type);
+    console.log('[Import] Preparing file upload:', file.name, file.type, 'project:', projectId);
 
     const formData = new FormData();
     
@@ -483,7 +488,7 @@ export const expensesApi = {
       console.log('[Import] Native file prepared:', file.name);
     }
 
-    const url = `${BACKEND_URL}/api/expenses/import`;
+    const url = `${BACKEND_URL}/api/expenses/import?projectId=${encodeURIComponent(projectId)}`;
     const token = await getBearerToken();
 
     console.log('[Import] Uploading to:', url);
@@ -525,50 +530,31 @@ export const expensesApi = {
  * Handles all participant-related operations
  */
 export const participantsApi = {
-  /**
-   * Get all participants
-   */
-  getAll: async (): Promise<Participant[]> => {
-    return apiGet<Participant[]>('/api/participants');
+  getAll: async (projectId: string): Promise<Participant[]> => {
+    return apiGet<Participant[]>(`/api/participants?projectId=${encodeURIComponent(projectId)}`);
   },
 
-  /**
-   * Create a new participant
-   * @param name - Participant name
-   * @param createdByUserId - Optional user ID who is creating this participant (for ownership tracking)
-   */
-  create: async (name: string, createdByUserId?: string | null): Promise<Participant> => {
-    const body: { name: string; createdBy?: string | null } = { name };
+  create: async (projectId: string, name: string, createdByUserId?: string | null): Promise<Participant> => {
+    const body: { name: string; projectId: string; createdBy?: string | null } = { name, projectId };
     if (createdByUserId !== undefined) {
       body.createdBy = createdByUserId;
     }
     return apiPost<Participant>('/api/participants', body);
   },
 
-  /**
-   * Update a participant's name
-   */
   update: async (participantId: string, name: string): Promise<Participant> => {
     return apiPut<Participant>(`/api/participants/${participantId}`, { name });
   },
 
-  /**
-   * Delete a participant
-   * @param participantId - ID of the participant to delete
-   * @param createdByUserId - Optional user ID for ownership verification (if provided, only creator can delete)
-   */
   delete: async (participantId: string, createdByUserId?: string): Promise<void> => {
-    const endpoint = createdByUserId 
+    const endpoint = createdByUserId
       ? `/api/participants/${participantId}?createdBy=${createdByUserId}`
       : `/api/participants/${participantId}`;
     return apiDelete<void>(endpoint);
   },
 
-  /**
-   * Get balance information for all participants
-   */
-  getBalance: async (): Promise<BalanceResponse> => {
-    return apiGet<BalanceResponse>('/api/participants/balance');
+  getBalance: async (projectId: string): Promise<BalanceResponse> => {
+    return apiGet<BalanceResponse>(`/api/participants/balance?projectId=${encodeURIComponent(projectId)}`);
   },
 };
 
@@ -577,23 +563,21 @@ export const participantsApi = {
  * Handles all settlement-related operations
  */
 export const settlementsApi = {
-  /**
-   * Get all settlements
-   */
-  getAll: async (): Promise<Settlement[]> => {
-    return apiGet<Settlement[]>('/api/settlements');
+  getAll: async (projectId: string): Promise<Settlement[]> => {
+    return apiGet<Settlement[]>(`/api/settlements?projectId=${encodeURIComponent(projectId)}`);
   },
 
-  /**
-   * Create a new settlement
-   */
-  create: async (settlement: { fromParticipant: string; toParticipant: string; amount: number; date: string; description: string }): Promise<Settlement> => {
+  create: async (settlement: {
+    fromParticipant: string;
+    toParticipant: string;
+    amount: number;
+    date: string;
+    description: string;
+    projectId: string;
+  }): Promise<Settlement> => {
     return apiPost<Settlement>('/api/settlements', settlement);
   },
 
-  /**
-   * Delete a settlement
-   */
   delete: async (settlementId: string): Promise<void> => {
     return apiDelete<void>(`/api/settlements/${settlementId}`);
   },

@@ -5,42 +5,35 @@ import { parse } from 'csv-parse/sync';
 import * as XLSX from 'xlsx';
 
 export function registerExpensesRoutes(app: App) {
-  // GET /api/expenses - Returns expenses with filters
+  // GET /api/expenses?projectId=... - Returns expenses for a project
   app.fastify.get<{
-    Querystring: { search?: string; minAmount?: string; maxAmount?: string };
+    Querystring: { search?: string; minAmount?: string; maxAmount?: string; projectId?: string };
   }>('/api/expenses', async (request, reply) => {
-    const { search, minAmount, maxAmount } = request.query;
-    app.logger.info({ search, minAmount, maxAmount }, 'Fetching expenses');
+    const { search, minAmount, maxAmount, projectId } = request.query;
+    app.logger.info({ search, minAmount, maxAmount, projectId }, 'Fetching expenses');
 
     try {
-      let query = app.db.select().from(expenses);
-
-      // Apply filters
-      const conditions = [];
-
-      if (search) {
-        conditions.push(
-          or(like(expenses.description, `%${search}%`), like(expenses.description, `%${search}%`))
-        );
+      if (!projectId) {
+        reply.code(400);
+        return { error: 'projectId is required' };
       }
 
+      const conditions = [eq(expenses.projectId, projectId)];
+
+      if (search) {
+        conditions.push(like(expenses.description, `%${search}%`));
+      }
       if (minAmount) {
         conditions.push(gte(expenses.amount, minAmount));
       }
-
       if (maxAmount) {
         conditions.push(lte(expenses.amount, maxAmount));
       }
 
-      const allExpenses = await query;
-      let filteredExpenses = allExpenses;
-
-      if (conditions.length > 0) {
-        filteredExpenses = await app.db
-          .select()
-          .from(expenses)
-          .where(and(...conditions));
-      }
+      const filteredExpenses = await app.db
+        .select()
+        .from(expenses)
+        .where(and(...conditions));
 
       // Fetch participant details for paidBy (which is a participant UUID)
       // createdBy is a user ID string and should NOT be looked up in participants
@@ -78,7 +71,7 @@ export function registerExpensesRoutes(app: App) {
     }
   });
 
-  // POST /api/expenses - Creates expense
+  // POST /api/expenses - Creates expense (requires projectId)
   app.fastify.post<{
     Body: {
       date: string;
@@ -87,17 +80,20 @@ export function registerExpensesRoutes(app: App) {
       paidBy: string;
       splitPercentage?: number;
       createdBy?: string | null;
+      projectId: string;
     };
   }>('/api/expenses', async (request, reply) => {
     app.logger.info({ body: request.body }, 'Creating new expense');
 
     try {
-      let { date, description, amount, paidBy, splitPercentage = 50.0, createdBy } = request.body;
+      let { date, description, amount, paidBy, splitPercentage = 50.0, createdBy, projectId } = request.body;
 
-      // Explicitly handle null/undefined createdBy
+      if (!projectId) {
+        reply.code(400);
+        return { error: 'projectId is required' };
+      }
+
       const createdByValue = createdBy === undefined || createdBy === '' ? null : createdBy;
-
-      app.logger.debug({ createdByValue, receivedCreatedBy: createdBy }, 'Processing createdBy value');
 
       const newExpense = await app.db
         .insert(expenses)
@@ -108,6 +104,7 @@ export function registerExpensesRoutes(app: App) {
           paidBy,
           splitPercentage: splitPercentage.toString(),
           createdBy: createdByValue,
+          projectId,
         })
         .returning();
 
@@ -271,28 +268,37 @@ export function registerExpensesRoutes(app: App) {
     }
   });
 
-  // GET /api/expenses/export - Exports expenses as CSV or XLSX
+  // GET /api/expenses/export?projectId=... - Exports expenses as CSV or XLSX
   app.fastify.get<{
-    Querystring: { ids?: string; format?: string };
+    Querystring: { ids?: string; format?: string; projectId?: string };
   }>('/api/expenses/export', async (request, reply) => {
-    const { ids, format = 'csv' } = request.query;
-    app.logger.info({ ids, format }, 'Exporting expenses');
+    const { ids, format = 'csv', projectId } = request.query;
+    app.logger.info({ ids, format, projectId }, 'Exporting expenses');
 
     try {
-      let query = app.db.select().from(expenses);
+      if (!projectId) {
+        reply.code(400);
+        return { error: 'projectId is required' };
+      }
 
-      let allExpenses = await query;
-
+      let allExpenses;
       if (ids) {
         const expenseIds = ids.split(',');
         allExpenses = await app.db
           .select()
           .from(expenses)
-          .where(inArray(expenses.id, expenseIds));
+          .where(and(eq(expenses.projectId, projectId), inArray(expenses.id, expenseIds)));
+      } else {
+        allExpenses = await app.db
+          .select()
+          .from(expenses)
+          .where(eq(expenses.projectId, projectId));
       }
 
-      // Get unique participants
-      const allParticipants = await app.db.select().from(participants);
+      const allParticipants = await app.db
+        .select()
+        .from(participants)
+        .where(eq(participants.projectId, projectId));
       const participantMap = new Map(allParticipants.map((p) => [p.id, p.name]));
 
       // Build data rows
@@ -341,9 +347,14 @@ export function registerExpensesRoutes(app: App) {
     }
   });
 
-  // POST /api/expenses/import - Imports expenses from CSV or Excel
-  app.fastify.post('/api/expenses/import', async (request, reply) => {
-    app.logger.info({}, 'Importing expenses from file');
+  // POST /api/expenses/import?projectId=... - Imports expenses from CSV or Excel
+  app.fastify.post<{ Querystring: { projectId?: string } }>('/api/expenses/import', async (request, reply) => {
+    const { projectId } = request.query;
+    app.logger.info({ projectId }, 'Importing expenses from file');
+    if (!projectId) {
+      reply.code(400);
+      return { error: 'projectId is required', imported: 0, errors: [] };
+    }
 
     try {
       let data;
@@ -382,7 +393,10 @@ export function registerExpensesRoutes(app: App) {
       }
 
       app.logger.info({ filesize: buffer.length, format: isExcel ? 'xlsx' : 'csv' }, 'File buffer ready');
-      const allParticipants = await app.db.select().from(participants);
+      const allParticipants = await app.db
+        .select()
+        .from(participants)
+        .where(eq(participants.projectId, projectId));
       const participantMap = new Map(allParticipants.map((p) => [p.name, p.id]));
 
       let records: Array<Record<string, any>> = [];
@@ -735,6 +749,7 @@ export function registerExpensesRoutes(app: App) {
                   paidBy: participantId,
                   createdBy: createdById,
                   splitPercentage: '50.00',
+                  projectId,
                 })
                 .returning();
 
@@ -760,27 +775,30 @@ export function registerExpensesRoutes(app: App) {
     }
   });
 
-  // DELETE /api/expenses/all - Deletes ALL expenses (requires authentication)
-  app.fastify.delete('/api/expenses/all', async (request, reply) => {
-    app.logger.info({}, 'Deleting all expenses');
-
-    try {
-      // Require authentication
-      const session = await app.requireAuth()(request, reply);
-      if (!session) return;
-
-      // Get count of expenses before deletion
-      const allExpenses = await app.db.select().from(expenses);
-      const deletedCount = allExpenses.length;
-
-      // Delete all expenses
-      await app.db.delete(expenses);
-
-      app.logger.info({ deletedCount, userId: session.user.id }, 'All expenses deleted successfully');
-      return { success: true, deletedCount };
-    } catch (error) {
-      app.logger.error({ err: error }, 'Failed to delete all expenses');
-      throw error;
+  // DELETE /api/expenses/all?projectId=... - Deletes ALL expenses in a project
+  app.fastify.delete<{ Querystring: { projectId?: string } }>(
+    '/api/expenses/all',
+    async (request, reply) => {
+      const { projectId } = request.query;
+      app.logger.info({ projectId }, 'Deleting all expenses in project');
+      try {
+        const session = await app.requireAuth()(request, reply);
+        if (!session) return;
+        if (!projectId) {
+          reply.code(400);
+          return { error: 'projectId is required' };
+        }
+        const allExpenses = await app.db
+          .select()
+          .from(expenses)
+          .where(eq(expenses.projectId, projectId));
+        const deletedCount = allExpenses.length;
+        await app.db.delete(expenses).where(eq(expenses.projectId, projectId));
+        return { success: true, deletedCount };
+      } catch (error) {
+        app.logger.error({ err: error }, 'Failed to delete all expenses');
+        throw error;
+      }
     }
-  });
+  );
 }

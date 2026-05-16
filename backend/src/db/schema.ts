@@ -1,11 +1,19 @@
 import { pgTable, text, timestamp, uuid, decimal, numeric } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 
+export const projects = pgTable('projects', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  name: text('name').notNull(),
+  createdBy: text('created_by'),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
+
 export const participants = pgTable('participants', {
   id: uuid('id').primaryKey().defaultRandom(),
   name: text('name').notNull(),
-  color: text('color').default('#3B82F6'), // Default blue color
-  createdBy: text('created_by'), // nullable for backward compatibility
+  color: text('color').default('#3B82F6'),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  createdBy: text('created_by'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
 
@@ -16,7 +24,8 @@ export const expenses = pgTable('expenses', {
   amount: numeric('amount', { precision: 10, scale: 2 }).notNull(),
   paidBy: uuid('paid_by').notNull(),
   splitPercentage: numeric('split_percentage', { precision: 5, scale: 2 }).default('50.00'),
-  createdBy: text('created_by'), // Nullable to support both authenticated and anonymous users
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
+  createdBy: text('created_by'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
 
@@ -27,14 +36,24 @@ export const settlements = pgTable('settlements', {
   toParticipant: uuid('to_participant').notNull(),
   amount: numeric('amount', { precision: 10, scale: 2 }).notNull(),
   description: text('description').default('Settlement'),
+  projectId: uuid('project_id').references(() => projects.id, { onDelete: 'cascade' }),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
 
-// Relations
+export const projectsRelations = relations(projects, ({ many }) => ({
+  participants: many(participants),
+  expenses: many(expenses),
+  settlements: many(settlements),
+}));
+
 export const expensesRelations = relations(expenses, ({ one }) => ({
   paidByParticipant: one(participants, {
     fields: [expenses.paidBy],
     references: [participants.id],
+  }),
+  project: one(projects, {
+    fields: [expenses.projectId],
+    references: [projects.id],
   }),
 }));
 
@@ -47,9 +66,13 @@ export const settlementsRelations = relations(settlements, ({ one }) => ({
     fields: [settlements.toParticipant],
     references: [participants.id],
   }),
+  project: one(projects, {
+    fields: [settlements.projectId],
+    references: [projects.id],
+  }),
 }));
 
-export const participantsRelations = relations(participants, ({ many }) => ({
+export const participantsRelations = relations(participants, ({ many, one }) => ({
   expensesPaidBy: many(expenses, {
     relationName: 'paidBy',
   }),
@@ -58,5 +81,9 @@ export const participantsRelations = relations(participants, ({ many }) => ({
   }),
   settlementsTo: many(settlements, {
     relationName: 'toParticipant',
+  }),
+  project: one(projects, {
+    fields: [participants.projectId],
+    references: [projects.id],
   }),
 }));

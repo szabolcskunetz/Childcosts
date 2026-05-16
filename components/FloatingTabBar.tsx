@@ -85,6 +85,7 @@ export default function FloatingTabBar({
 
   const getTranslatedLabel = (label: string): string => {
     const labelMap: Record<string, string> = {
+      'Projects': t('projects') || 'Projects',
       'Expenses': t('expenses'),
       'Balance': t('balance'),
       'Settings': t('settings'),

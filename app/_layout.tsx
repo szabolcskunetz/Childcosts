@@ -19,6 +19,7 @@ import { WidgetProvider } from "@/contexts/WidgetContext";
 import { LanguageProvider } from "@/contexts/LanguageContext";
 import { CustomThemeProvider } from "@/contexts/ThemeContext";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { ProjectProvider } from "@/contexts/ProjectContext";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -93,15 +94,17 @@ export default function RootLayout() {
               value={colorScheme === "dark" ? CustomDarkTheme : CustomDefaultTheme}
             >
               <WidgetProvider>
-                <GestureHandlerRootView>
-                  <Stack>
-                    <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                    <Stack.Screen name="auth" options={{ headerShown: false }} />
-                    <Stack.Screen name="auth-popup" options={{ headerShown: false }} />
-                    <Stack.Screen name="auth-callback" options={{ headerShown: false }} />
-                  </Stack>
-                  <SystemBars style={"auto"} />
-                </GestureHandlerRootView>
+                <ProjectProvider>
+                  <GestureHandlerRootView>
+                    <Stack>
+                      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                      <Stack.Screen name="auth" options={{ headerShown: false }} />
+                      <Stack.Screen name="auth-popup" options={{ headerShown: false }} />
+                      <Stack.Screen name="auth-callback" options={{ headerShown: false }} />
+                    </Stack>
+                    <SystemBars style={"auto"} />
+                  </GestureHandlerRootView>
+                </ProjectProvider>
               </WidgetProvider>
             </ThemeProvider>
           </CustomThemeProvider>

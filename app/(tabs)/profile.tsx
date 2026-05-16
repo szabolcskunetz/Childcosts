@@ -20,12 +20,14 @@ import Modal from "@/components/ui/Modal";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useCustomTheme } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useProject } from "@/contexts/ProjectContext";
 
 export default function BalanceScreen() {
   const theme = useTheme();
   const { t } = useLanguage();
   const { customColors } = useCustomTheme();
   const { user } = useAuth();
+  const { activeProjectId } = useProject();
   const [balance, setBalance] = useState<BalanceResponse | null>(null);
   const [settlements, setSettlements] = useState<Settlement[]>([]);
   const [loading, setLoading] = useState(true);
@@ -41,10 +43,17 @@ export default function BalanceScreen() {
   const [editName, setEditName] = useState("");
 
   const loadData = useCallback(async () => {
+    if (!activeProjectId) {
+      setBalance(null);
+      setSettlements([]);
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
     try {
       const [balanceData, settlementsData] = await Promise.all([
-        participantsApi.getBalance(),
-        settlementsApi.getAll(),
+        participantsApi.getBalance(activeProjectId),
+        settlementsApi.getAll(activeProjectId),
       ]);
       
       console.log('[Balance] Balance data received:', balanceData);
@@ -59,7 +68,7 @@ export default function BalanceScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [t]);
+  }, [t, activeProjectId]);
 
   useEffect(() => {
     loadData();

@@ -19,6 +19,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useRouter } from 'expo-router';
 import Modal from '@/components/ui/Modal';
 import { participantsApi, Participant } from '@/utils/api';
+import { useProject } from '@/contexts/ProjectContext';
 
 export default function SettingsScreen() {
   const theme = useTheme();
@@ -26,6 +27,7 @@ export default function SettingsScreen() {
   const { language, setLanguage, t } = useLanguage();
   const { customColors, setCustomColors, resetColors, setParticipantColor, getParticipantColor, resetParticipantColors } = useCustomTheme();
   const { user, signOut } = useAuth();
+  const { activeProjectId } = useProject();
   
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showColorModal, setShowColorModal] = useState(false);
@@ -38,11 +40,16 @@ export default function SettingsScreen() {
 
   useEffect(() => {
     loadParticipants();
-  }, []);
+  }, [activeProjectId]);
 
   const loadParticipants = async () => {
+    if (!activeProjectId) {
+      setParticipants([]);
+      setLoadingParticipants(false);
+      return;
+    }
     try {
-      const data = await participantsApi.getAll();
+      const data = await participantsApi.getAll(activeProjectId);
       setParticipants(data);
     } catch (error) {
       console.error('Failed to load participants:', error);

@@ -8,6 +8,7 @@ import { registerParticipantsRoutes } from './routes/participants.js';
 import { registerExpensesRoutes } from './routes/expenses.js';
 import { registerSettlementsRoutes } from './routes/settlements.js';
 import { registerAuthRoutes } from './routes/auth.js';
+import { registerProjectsRoutes } from './routes/projects.js';
 
 // Combine schemas
 const schema = { ...appSchema, ...authSchema };
@@ -693,6 +694,7 @@ app.fastify.setErrorHandler(async (error: any, request, reply) => {
 // Register routes - add your route modules here
 // IMPORTANT: Always use registration functions to avoid circular dependency issues
 registerAuthRoutes(app);
+registerProjectsRoutes(app);
 registerParticipantsRoutes(app);
 registerExpensesRoutes(app);
 registerSettlementsRoutes(app);

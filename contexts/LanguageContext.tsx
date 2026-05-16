@@ -43,6 +43,9 @@ const translations: Record<Language, Record<string, string>> = {
     success: 'Success',
     loading: 'Loading...',
     
+    // Projects
+    projects: 'Projects',
+
     // Expenses
     expenses: 'Expenses',
     recentExpenses: 'Recent Expenses',
@@ -199,6 +202,9 @@ const translations: Record<Language, Record<string, string>> = {
     success: 'Sikeres',
     loading: 'Betöltés...',
     
+    // Projects
+    projects: 'Projektek',
+
     // Expenses
     expenses: 'Kiadások',
     recentExpenses: 'Legutóbbi kiadások',
@@ -354,7 +360,10 @@ const translations: Record<Language, Record<string, string>> = {
     error: 'Fehler',
     success: 'Erfolg',
     loading: 'Lädt...',
-    
+
+    // Projects
+    projects: 'Projekte',
+
     // Expenses
     expenses: 'Ausgaben',
     recentExpenses: 'Letzte Ausgaben',
@@ -498,7 +507,10 @@ const translations: Record<Language, Record<string, string>> = {
     error: 'Error',
     success: 'Éxito',
     loading: 'Cargando...',
-    
+
+    // Projects
+    projects: 'Proyectos',
+
     // Expenses
     expenses: 'Gastos',
     recentExpenses: 'Gastos recientes',
