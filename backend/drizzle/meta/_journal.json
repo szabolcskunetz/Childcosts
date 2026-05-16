@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1770298853209,
+      "tag": "20260205134053_clear_talos",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1770317553317,
+      "tag": "20260205185233_famous_jasper_sitwell",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1770328933912,
+      "tag": "20260205220213_gray_peter_parker",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1770329896562,
+      "tag": "20260205221816_nappy_wraith",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1770813691440,
+      "tag": "20260211124131_workable_the_twelve",
+      "breakpoints": true
+    }
+  ]
+}

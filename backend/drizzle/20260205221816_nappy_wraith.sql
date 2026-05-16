@@ -1,0 +1,1 @@
+ALTER TABLE "expenses" ALTER COLUMN "created_by" SET DATA TYPE text;
