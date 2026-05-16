@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 /**
  * Loading Button Component Template
  *

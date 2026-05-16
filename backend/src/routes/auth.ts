@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 import type { App } from '../index.js';
 
 export function registerAuthRoutes(app: App) {

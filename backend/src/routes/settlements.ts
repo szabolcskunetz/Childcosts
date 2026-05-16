@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 import { App } from '../index.js';
 import { settlements, participants } from '../db/schema.js';
 import { eq } from 'drizzle-orm';

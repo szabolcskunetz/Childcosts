@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 import React, { useEffect } from 'react';
 import { StyleSheet, View, ViewStyle } from 'react-native';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';

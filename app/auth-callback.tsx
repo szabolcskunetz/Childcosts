@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 
 import React, { useEffect, useState } from "react";
 import { View, Text, ActivityIndicator, StyleSheet, TouchableOpacity } from "react-native";

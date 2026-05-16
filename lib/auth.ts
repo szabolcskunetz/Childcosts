@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 import { createAuthClient } from "better-auth/react";
 import { expoClient } from "@better-auth/expo/client";
 import * as SecureStore from "expo-secure-store";

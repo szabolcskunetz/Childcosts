@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 import { Link, Stack } from 'expo-router';
 import { View, Text, StyleSheet } from 'react-native';
 

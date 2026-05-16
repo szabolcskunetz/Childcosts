@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 const tintColorLight = "#0a7ea4";
 const tintColorDark = "#fff";
 

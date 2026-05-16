@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 import { createApplication, resend } from "@specific-dev/framework";
 import * as appSchema from './db/schema.js';
 import * as authSchema from './db/auth-schema.js';

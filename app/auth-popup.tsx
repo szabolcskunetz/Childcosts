@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 import React, { useEffect } from "react";
 import { View, Text, ActivityIndicator, StyleSheet } from "react-native";
 import { Platform } from "react-native";

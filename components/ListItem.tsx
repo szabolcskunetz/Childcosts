@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 import React from "react";
 import * as Haptics from "expo-haptics";
 import { Pressable, StyleSheet, useColorScheme, View, Text } from "react-native";

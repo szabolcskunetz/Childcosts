@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 import { App } from '../index.js';
 import { participants, expenses, settlements } from '../db/schema.js';
 import { eq, and, sum, inArray } from 'drizzle-orm';

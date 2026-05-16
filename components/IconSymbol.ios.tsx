@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 import { SymbolView, SymbolViewProps, SymbolWeight } from "expo-symbols";
 import { StyleProp, ViewStyle } from "react-native";
 

@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 import { defineConfig } from 'drizzle-kit';
 
 export default defineConfig({

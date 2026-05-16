@@ -1,3 +1,4 @@
+// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 import * as React from "react";
 import { createContext, useCallback, useContext } from "react";
 import { ExtensionStorage } from "@bacons/apple-targets";
