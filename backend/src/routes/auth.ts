@@ -76,6 +76,16 @@ export function registerAuthRoutes(app: App) {
           /natively|newly|specular|specific|google|oauth|client/i.test(k)
         )
         .sort(),
+      // Specific env vars relevant for OAuth redirect_uri construction.
+      // Showing presence + value (these are URLs, not secrets).
+      authBaseUrl: {
+        BETTER_AUTH_URL: process.env.BETTER_AUTH_URL || null,
+        BACKEND_URL: process.env.BACKEND_URL || null,
+        SERVICE_URL: process.env.SERVICE_URL || null,
+        // List ALL env var names so we can spot what Natively actually
+        // injects under (e.g. PUBLIC_URL, APP_URL, etc.).
+        allEnvNames: Object.keys(process.env).sort(),
+      },
     };
   });
 
