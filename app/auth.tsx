@@ -16,6 +16,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "expo-router";
 import Modal from "@/components/ui/Modal";
 import { IconSymbol } from "@/components/IconSymbol";
+import Constants from "expo-constants";
 
 type Mode = "signin" | "signup";
 
@@ -336,6 +337,21 @@ export default function AuthScreen() {
               </Text>
             </TouchableOpacity>
           )}
+
+          {/* DIAGNOSTIC: shows which backend URL this build will call.
+              Remove once Google sign-in is confirmed working. */}
+          <Text
+            selectable
+            style={{
+              marginTop: 16,
+              fontSize: 10,
+              color: '#888',
+              textAlign: 'center',
+              fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+            }}
+          >
+            backend: {Constants.expoConfig?.extra?.backendUrl || '(unset)'}
+          </Text>
 
           <TouchableOpacity
             style={styles.skipButton}
