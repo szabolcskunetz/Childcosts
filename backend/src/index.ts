@@ -22,6 +22,16 @@ export type App = typeof app;
 
 // Enable authentication with Better Auth
 app.withAuth({
+  // Public base URL of this backend. Without it Better Auth falls back to
+  // http://localhost:3001 and bakes that into the OAuth redirect_uri, which
+  // makes Google reject every social sign-in attempt from the installed
+  // app (manifests as a one-frame browser flash).
+  baseURL:
+    process.env.BETTER_AUTH_URL ||
+    process.env.BACKEND_URL ||
+    process.env.SERVICE_URL ||
+    undefined,
+
   // Email verification configuration
   emailVerification: {
     sendOnSignUp: true,
