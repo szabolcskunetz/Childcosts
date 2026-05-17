@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "ChildCosts",
-    "slug": "childcosts",
+    "slug": "child-costs-app-gfnomj",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/ChildCosts.png",
@@ -25,7 +25,7 @@
         "backgroundColor": "#000000"
       },
       "edgeToEdgeEnabled": true,
-      "package": "com.anonymous.Natively",
+      "package": "com.Szab.ChildCosts",
       "intentFilters": [
         {
           "action": "VIEW",
@@ -58,7 +58,7 @@
     },
     "extra": {
       "router": {},
-      "backendUrl": "https://dcu6dvshykbqejsesn4p9mccbbv7zhyw.app.specular.dev"
+      "backendUrl": "https://79bb6peg8uhmk764zrrkg2u82aydudva.app.specular.dev"
     }
   }
 }
