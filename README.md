@@ -27,3 +27,9 @@ This software is the intellectual property of Kunetz Szabolcs. See [COPYRIGHT.tx
 Copyright © 2026 Kunetz Szabolcs. All rights reserved.
 
 This software is the intellectual property of Kunetz Szabolcs. See [COPYRIGHT.txt](./COPYRIGHT.txt) for details.
+
+## License & Copyright
+
+Copyright © 2026 Kunetz Szabolcs. All rights reserved.
+
+This software is the intellectual property of Kunetz Szabolcs. See [COPYRIGHT.txt](./COPYRIGHT.txt) for details.
