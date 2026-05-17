@@ -8,6 +8,35 @@ export function registerAuthRoutes(app: App) {
   // Better Auth provides standard auth endpoints at /api/auth/*
   // (sign-up, sign-in, verify-email, reset-password, etc.)
 
+  // GET /api/auth/debug-callback-trace — diagnostic only.
+  // Hits the OAuth callback URL with a fake code and surfaces the raw
+  // Better Auth response. Helps us see what Better Auth does when it
+  // tries to process a callback — even if the code is invalid, the
+  // error message we get back is informative.
+  app.fastify.get('/api/auth/debug-callback-trace', async (request, reply) => {
+    const host = request.headers.host;
+    const proto = (request.headers['x-forwarded-proto'] as string) || 'https';
+    const selfBase = `${proto}://${host}`;
+    const target = `${selfBase}/api/auth/callback/google?code=test-debug-code&state=test-state`;
+
+    try {
+      const res = await fetch(target, { method: 'GET', redirect: 'manual' });
+      const text = await res.text();
+      let parsed: any = null;
+      try { parsed = JSON.parse(text); } catch {}
+      return {
+        target,
+        status: res.status,
+        statusText: res.statusText,
+        location: res.headers.get('location'),
+        contentType: res.headers.get('content-type'),
+        body: parsed ?? text.slice(0, 1000),
+      };
+    } catch (e: any) {
+      return { target, error: e?.message || String(e) };
+    }
+  });
+
   // GET /api/auth/debug-social-test — diagnostic only.
   // Server-side replays what the mobile SDK does (POST to
   // /api/auth/sign-in/social with provider=google) so we can see the
