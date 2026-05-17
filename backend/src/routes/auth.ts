@@ -8,6 +8,46 @@ export function registerAuthRoutes(app: App) {
   // Better Auth provides standard auth endpoints at /api/auth/*
   // (sign-up, sign-in, verify-email, reset-password, etc.)
 
+  // GET /api/auth/debug-social-test — diagnostic only.
+  // Server-side replays what the mobile SDK does (POST to
+  // /api/auth/sign-in/social with provider=google) so we can see the
+  // raw Better Auth response that the SDK normally swallows.
+  app.fastify.get('/api/auth/debug-social-test', async (request, reply) => {
+    const host = request.headers.host;
+    const proto = (request.headers['x-forwarded-proto'] as string) || 'https';
+    const selfBase = `${proto}://${host}`;
+    const target = `${selfBase}/api/auth/sign-in/social`;
+
+    try {
+      const res = await fetch(target, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          provider: 'google',
+          callbackURL: 'childcosts://auth-callback',
+        }),
+        redirect: 'manual',
+      });
+      const text = await res.text();
+      let parsed: any = null;
+      try { parsed = JSON.parse(text); } catch {}
+      return {
+        target,
+        status: res.status,
+        statusText: res.statusText,
+        location: res.headers.get('location'),
+        contentType: res.headers.get('content-type'),
+        body: parsed ?? text,
+      };
+    } catch (e: any) {
+      return {
+        target,
+        error: e?.message || String(e),
+        stack: e?.stack,
+      };
+    }
+  });
+
   // GET /api/auth/debug-config — diagnostic only.
   // Reports whether OAuth env vars are present on the deployment.
   // Does NOT expose the actual values.
