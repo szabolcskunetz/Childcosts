@@ -201,6 +201,33 @@ app.fastify.addHook('onRequest', async (request, reply) => {
   if (request.url.startsWith('/api/auth/verify-email')) {
     app.logger.info({ url: request.url, query: request.query }, 'Email verification request received');
   }
+
+  // Log everything about OAuth callbacks so we can see what fails inside
+  // Better Auth when Google redirects back.
+  if (request.url.startsWith('/api/auth/callback/')) {
+    app.logger.info(
+      { url: request.url, query: request.query, headers: { host: request.headers.host, referer: request.headers.referer } },
+      'OAuth callback received'
+    );
+  }
+});
+
+// Catch the root path with an error query (Better Auth's default error
+// redirect target when no frontend URL is configured). Surface the full
+// query string and any other context so we stop seeing a bare 404 and can
+// see what actually failed in the OAuth flow.
+app.fastify.get<{ Querystring: Record<string, string> }>('/', async (request, reply) => {
+  const query = request.query || {};
+  if (query.error || query.error_description) {
+    app.logger.warn({ query, headers: request.headers }, 'OAuth error redirect landed on /');
+    // If this came from a mobile OAuth flow, bounce to the app deep link
+    // so the user actually returns to the app with the error info.
+    const deepLink = `childcosts://auth-callback?${new URLSearchParams(query as Record<string, string>).toString()}`;
+    reply.header('Location', deepLink);
+    reply.status(302);
+    return '';
+  }
+  return { ok: true, service: 'childcosts-backend' };
 });
 
 // Add hook to intercept redirects after successful email verification
