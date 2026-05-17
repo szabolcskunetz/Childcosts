@@ -1,4 +1,3 @@
-// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 /**
  * Error Boundary Component
  *

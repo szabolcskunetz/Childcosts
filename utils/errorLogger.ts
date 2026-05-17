@@ -1,4 +1,3 @@
-// Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 // Global error logging for runtime errors
 // Captures console.log/warn/error and sends to Newly server for AI debugging
 
