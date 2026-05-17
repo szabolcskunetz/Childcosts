@@ -205,12 +205,55 @@ app.fastify.addHook('onRequest', async (request, reply) => {
   // Log everything about OAuth callbacks so we can see what fails inside
   // Better Auth when Google redirects back.
   if (request.url.startsWith('/api/auth/callback/')) {
-    app.logger.info(
-      { url: request.url, query: request.query, headers: { host: request.headers.host, referer: request.headers.referer } },
-      'OAuth callback received'
-    );
+    const entry = {
+      ts: new Date().toISOString(),
+      phase: 'request',
+      url: request.url,
+      query: request.query,
+      host: request.headers.host,
+      referer: request.headers.referer,
+    };
+    app.logger.info(entry, 'OAuth callback received');
+    pushAuthDebugLog(entry);
   }
 });
+
+// In-memory ring buffer so we can read recent OAuth events from a
+// browser without needing Cloud Run log access.
+const AUTH_DEBUG_LOG: any[] = [];
+function pushAuthDebugLog(entry: any) {
+  AUTH_DEBUG_LOG.push(entry);
+  if (AUTH_DEBUG_LOG.length > 50) AUTH_DEBUG_LOG.shift();
+}
+
+app.fastify.addHook('onSend', async (request, reply, payload) => {
+  // Capture what Better Auth sends back for OAuth callbacks (status,
+  // Location header, body preview) so we can see how/why the flow
+  // ended where it did.
+  if (request.url.startsWith('/api/auth/callback/') || request.url.startsWith('/api/auth/error')) {
+    const entry: any = {
+      ts: new Date().toISOString(),
+      phase: 'response',
+      url: request.url,
+      statusCode: reply.statusCode,
+      location: reply.getHeader('location'),
+      contentType: reply.getHeader('content-type'),
+    };
+    try {
+      const text = typeof payload === 'string' ? payload : payload?.toString?.() || '';
+      entry.body = text.slice(0, 500);
+    } catch {}
+    app.logger.info(entry, 'OAuth callback response');
+    pushAuthDebugLog(entry);
+  }
+  return payload;
+});
+
+// Expose the recent OAuth events ring buffer.
+app.fastify.get('/api/auth/debug-logs', async () => ({
+  count: AUTH_DEBUG_LOG.length,
+  entries: AUTH_DEBUG_LOG.slice(),
+}));
 
 // Catch the root path with an error query (Better Auth's default error
 // redirect target when no frontend URL is configured). Surface the full
