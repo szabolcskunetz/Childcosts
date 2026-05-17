@@ -22,6 +22,12 @@ const MARKER = /Copyright \(c\) 2026 Kunetz/;
 const SKIP_DIRS = new Set(['node_modules', '.expo', '.git', 'dist', 'build', '.next']);
 const EXTS = new Set(['.ts', '.tsx']);
 
+const README_PATH = 'README.md';
+const README_SECTION =
+  '\r\n## License & Copyright\r\n\r\n' +
+  'Copyright © 2026 Kunetz Szabolcs. All rights reserved.\r\n\r\n' +
+  'This software is the intellectual property of Kunetz Szabolcs. See [COPYRIGHT.txt](./COPYRIGHT.txt) for details.\r\n';
+
 const checkOnly = process.argv.includes('--check');
 
 function* walk(dir) {
@@ -54,19 +60,35 @@ for (const file of walk(ROOT)) {
   }
 }
 
+// Also ensure README.md has a "License & Copyright" section.
+try {
+  const readmeBytes = readFileSync(README_PATH);
+  const readmeText = readmeBytes.toString('utf8');
+  if (!MARKER.test(readmeText)) {
+    if (checkOnly) {
+      missing.push(README_PATH);
+    } else {
+      writeFileSync(README_PATH, Buffer.concat([readmeBytes, Buffer.from(README_SECTION, 'utf8')]));
+      added.push(README_PATH);
+    }
+  }
+} catch (e) {
+  // README.md missing entirely — not our job to create it.
+}
+
 if (checkOnly) {
   if (missing.length > 0) {
-    console.error(`Missing copyright header in ${missing.length} file(s):`);
+    console.error(`Missing copyright in ${missing.length} file(s):`);
     for (const f of missing) console.error(`  ${f}`);
     console.error('\nRun:  node scripts/copyright.mjs');
     process.exit(1);
   }
-  console.log('All source files have the copyright header.');
+  console.log('All source files (and README) have the copyright.');
 } else {
   if (added.length === 0) {
-    console.log('All source files already have the copyright header.');
+    console.log('Copyright already present everywhere.');
   } else {
-    console.log(`Added copyright header to ${added.length} file(s):`);
+    console.log(`Added copyright to ${added.length} file(s):`);
     for (const f of added) console.log(`  ${f}`);
   }
 }
