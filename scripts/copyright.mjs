@@ -61,10 +61,12 @@ for (const file of walk(ROOT)) {
 }
 
 // Also ensure README.md has a "License & Copyright" section.
+// The README uses © instead of (c), so check that variant.
+const README_MARKER = /Copyright (\(c\)|©) 2026 Kunetz/;
 try {
   const readmeBytes = readFileSync(README_PATH);
   const readmeText = readmeBytes.toString('utf8');
-  if (!MARKER.test(readmeText)) {
+  if (!README_MARKER.test(readmeText)) {
     if (checkOnly) {
       missing.push(README_PATH);
     } else {
