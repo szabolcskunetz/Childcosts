@@ -525,33 +525,75 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         debugLog("opening-browser", { callbackURL });
-        let result: any;
+
+        // Race the browser session against a deep link listener. On
+        // Android the system intent filter for childcosts://* often
+        // claims the redirect before openAuthSessionAsync's URL match
+        // logic runs, so the browser returns 'dismiss' even though the
+        // OAuth completed and the deep link reached the app.
+        const deepLinkPromise = new Promise<{ url: string }>((resolve) => {
+          const sub = Linking.addEventListener("url", (evt) => {
+            try {
+              if (evt?.url && evt.url.startsWith("childcosts://")) {
+                sub.remove();
+                resolve({ url: evt.url });
+              }
+            } catch {}
+          });
+        });
+
+        let browserResult: any = null;
+        let deepLinkUrl: string | null = null;
         try {
-          result = await WebBrowser.openAuthSessionAsync(oauthUrl, callbackURL);
+          const winner = await Promise.race([
+            WebBrowser.openAuthSessionAsync(oauthUrl, callbackURL).then((r) => ({ kind: "browser" as const, r })),
+            deepLinkPromise.then((d) => ({ kind: "link" as const, url: d.url })),
+          ]);
+          if (winner.kind === "browser") {
+            browserResult = winner.r;
+          } else {
+            deepLinkUrl = winner.url;
+            // Make sure the browser closes too so the user lands back in the app.
+            try { WebBrowser.dismissBrowser(); } catch {}
+          }
         } catch (e: any) {
           debugLog("openAuthSessionAsync-threw", { message: e?.message, stack: e?.stack });
           throw new Error(`Browser session threw: ${e?.message || e}`);
         }
-        debugLog("browser-result", {
-          type: result?.type,
-          url: result?.url ? result.url.slice(0, 500) : null,
-          errorCode: (result as any)?.errorCode,
-        });
 
-        if (result.type !== "success") {
-          throw new Error(`Sign in was ${result.type} (url=${result?.url || 'none'})`);
+        // If the browser closed before the deep link arrived, give the
+        // OS a moment in case the link is still on its way.
+        if (browserResult && browserResult.type !== "success" && !deepLinkUrl) {
+          try {
+            deepLinkUrl = await Promise.race([
+              deepLinkPromise.then((d) => d.url),
+              new Promise<string | null>((resolve) => setTimeout(() => resolve(null), 1500)),
+            ]);
+          } catch {}
         }
 
-        // Best-effort: the callback URL may carry a bearer token if the
-        // backend chose to surface one. Otherwise we rely on the Better
-        // Auth session cookie having been set during the callback.
+        const finalUrl: string | null = deepLinkUrl || (browserResult?.url ?? null);
+        debugLog("browser-result", {
+          type: browserResult?.type ?? "deep-link",
+          finalUrl: finalUrl ? finalUrl.slice(0, 500) : null,
+        });
+
+        if (!finalUrl) {
+          throw new Error(`Sign in was ${browserResult?.type || "dismiss"} (url=none)`);
+        }
+
+        // Extract bearer token from the callback URL (server adds it in
+        // the OAuth callback redirect — see backend onSend hook).
         try {
-          const returned = new URL(result.url);
+          const returned = new URL(finalUrl);
           const token =
             returned.searchParams.get("token") ||
             returned.searchParams.get("better_auth_token");
           if (token) {
             await setBearerToken(token);
+            debugLog("bearer-token-set", { fromQuery: true });
+          } else {
+            debugLog("bearer-token-missing", { url: finalUrl.slice(0, 300) });
           }
         } catch {}
 
