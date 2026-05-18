@@ -35,6 +35,51 @@ async function storeBetterAuthSessionToken(token: string, cookieName?: string | 
   }
 }
 
+/**
+ * Parse the Set-Cookie header value(s) that the @better-auth/expo
+ * server plugin attaches to the deep link as ?cookie=... and turn them
+ * into the JSON map shape that the @better-auth/expo client persists.
+ */
+function setCookieHeaderToExpoStore(setCookieHeader: string): string {
+  const map: Record<string, { value: string; expires: string | null }> = {};
+  // Set-Cookie headers may be joined by ", " when concatenated. Split
+  // carefully because cookie values can contain commas inside quoted
+  // strings, but Better Auth doesn't emit those, so a simple split is
+  // sufficient here.
+  const entries = setCookieHeader.split(/, (?=[^;]+?=)/);
+  for (const entry of entries) {
+    const [pair, ...attrs] = entry.split(";").map((p) => p.trim());
+    const idx = pair.indexOf("=");
+    if (idx < 0) continue;
+    const name = pair.slice(0, idx);
+    const value = pair.slice(idx + 1);
+    let expires: string | null = null;
+    for (const attr of attrs) {
+      const eq = attr.indexOf("=");
+      if (eq < 0) continue;
+      const k = attr.slice(0, eq).toLowerCase();
+      const v = attr.slice(eq + 1);
+      if (k === "max-age") {
+        const sec = Number(v);
+        if (!Number.isNaN(sec)) expires = new Date(Date.now() + sec * 1000).toISOString();
+      } else if (k === "expires" && !expires) {
+        const d = new Date(v);
+        if (!Number.isNaN(d.getTime())) expires = d.toISOString();
+      }
+    }
+    map[name] = { value, expires };
+  }
+  return JSON.stringify(map);
+}
+
+async function writeExpoCookieStore(payload: string) {
+  if (Platform.OS === "web") {
+    try { localStorage.setItem(EXPO_AUTH_COOKIE_KEY, payload); } catch {}
+  } else {
+    await SecureStore.setItemAsync(EXPO_AUTH_COOKIE_KEY, payload);
+  }
+}
+
 const LOCAL_USER_ID_KEY = "@childcosts_local_user_id";
 const ALL_USER_IDS_KEY = "@childcosts_all_user_ids";
 
@@ -616,6 +661,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // client's internal cookie storage.
         try {
           const returned = new URL(finalUrl);
+
+          // Preferred path: the @better-auth/expo server plugin appends
+          // ?cookie=<Set-Cookie header value> to the deep link. Parse it
+          // and persist into the @better-auth/expo client's cookie store
+          // so subsequent /api/auth/get-session calls carry the session.
+          const cookieHeader = returned.searchParams.get("cookie");
+          if (cookieHeader) {
+            const expoPayload = setCookieHeaderToExpoStore(cookieHeader);
+            await writeExpoCookieStore(expoPayload);
+            debugLog("session-stored", { source: "cookie-param", cookieNames: Object.keys(JSON.parse(expoPayload)) });
+            return;
+          }
+
+          // Fallback path (used while our manual /initiate-social route
+          // was the only thing producing redirects): single token query
+          // param, name supplied separately.
           const token =
             returned.searchParams.get("token") ||
             returned.searchParams.get("better_auth_token");
@@ -623,9 +684,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (token) {
             await setBearerToken(token);
             await storeBetterAuthSessionToken(token, cookieName);
-            debugLog("bearer-token-set", { fromQuery: true, expoStorage: true, cookieName });
+            debugLog("session-stored", { source: "token-param", cookieName });
           } else {
-            debugLog("bearer-token-missing", { url: finalUrl.slice(0, 300) });
+            debugLog("session-missing", { url: finalUrl.slice(0, 300) });
           }
         } catch (e: any) {
           debugLog("token-store-threw", { message: e?.message });
