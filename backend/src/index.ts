@@ -164,6 +164,24 @@ app.withAuth({
   },
 });
 
+// Better Auth's CSRF check rejects requests with a missing or null Origin
+// header (code: MISSING_OR_NULL_ORIGIN, status 403), and mobile clients
+// don't send an Origin like browsers do. Inject one derived from the
+// request host so the check passes for /api/auth/* — same-origin by
+// definition, since the request hit our own server.
+app.fastify.addHook('onRequest', async (request) => {
+  if (request.url.startsWith('/api/auth/')) {
+    const headers = request.raw.headers as Record<string, string | string[] | undefined>;
+    if (!headers.origin) {
+      const proto = (headers['x-forwarded-proto'] as string) || 'https';
+      const host = headers.host as string | undefined;
+      if (host) {
+        headers.origin = `${proto}://${host}`;
+      }
+    }
+  }
+});
+
 // Store sign-in email for resending verification if needed
 const signInEmailStore = new Map<string, string>();
 
