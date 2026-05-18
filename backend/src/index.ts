@@ -148,14 +148,18 @@ app.withAuth({
     },
   },
 
-  // Configure trusted origins for mobile apps and web clients
+  // Configure trusted origins for mobile apps and web clients.
+  // The @better-auth/expo server plugin checks ctx.context.isTrustedOrigin
+  // before appending ?cookie=... to the OAuth callback redirect, and the
+  // "*" wildcard only matches http/https origins — custom URI schemes
+  // like childcosts:// need to be listed explicitly, otherwise the
+  // mobile client never receives the session cookie after Google sign-in.
   trustedOrigins: [
-    "*", // Allow all origins by default for maximum compatibility
-    // This supports:
-    // - Web apps on any domain
-    // - Mobile apps with custom schemes (childcosts://)
-    // - Expo development (exp://)
-    // - Local development (localhost)
+    "*",
+    "childcosts://",
+    "childcosts://*",
+    "exp://",
+    "exp://*",
   ],
 
   // Social sign-in providers. Always registered so the route exists;
