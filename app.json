@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "ChildCosts",
-    "slug": "child-costs-app-gfnomj",
+    "slug": "childcosts",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/ChildCosts.png",
@@ -58,7 +58,7 @@
     },
     "extra": {
       "router": {},
-      "backendUrl": "https://7dcpbaru9jxkprbxakggq5xnppbf8puv.app.specular.dev"
+      "backendUrl": "https://65fyjp372huvb7r5m34esf95ejvwyh79.app.specular.dev"
     }
   }
 }
