@@ -8,6 +8,47 @@ export function registerAuthRoutes(app: App) {
   // Better Auth provides standard auth endpoints at /api/auth/*
   // (sign-up, sign-in, verify-email, reset-password, etc.)
 
+  // GET /api/auth/expo-authorization-proxy?authorizationURL=...
+  //
+  // The @better-auth/expo client opens this URL in the system browser
+  // to begin a social sign-in flow, expecting it to redirect to the
+  // provider's OAuth URL. The server-side @better-auth/expo plugin
+  // normally registers this route, but we only have the client plugin
+  // installed, so the SDK currently gets a 404 here and the OAuth flow
+  // dies before reaching Google.
+  //
+  // Re-implement the proxy ourselves: validate the URL belongs to a
+  // known OAuth provider, then 302 to it.
+  app.fastify.get<{ Querystring: { authorizationURL?: string } }>(
+    '/api/auth/expo-authorization-proxy',
+    async (request, reply) => {
+      const { authorizationURL } = request.query;
+      if (!authorizationURL) {
+        reply.code(400);
+        return { error: 'authorizationURL is required' };
+      }
+      const ALLOWED_HOSTS = new Set([
+        'accounts.google.com',
+        'appleid.apple.com',
+        'github.com',
+      ]);
+      try {
+        const parsed = new URL(authorizationURL);
+        if (!ALLOWED_HOSTS.has(parsed.hostname)) {
+          app.logger.warn({ authorizationURL }, 'Rejected expo proxy redirect to untrusted host');
+          reply.code(400);
+          return { error: 'Untrusted authorization host' };
+        }
+        reply.header('Location', authorizationURL);
+        reply.code(302);
+        return '';
+      } catch (e) {
+        reply.code(400);
+        return { error: 'Invalid authorizationURL' };
+      }
+    }
+  );
+
   // GET /api/auth/debug-callback-trace — diagnostic only.
   // Hits the OAuth callback URL with a fake code and surfaces the raw
   // Better Auth response. Helps us see what Better Auth does when it
