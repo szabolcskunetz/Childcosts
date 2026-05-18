@@ -202,18 +202,24 @@ app.fastify.addHook('onRequest', async (request, reply) => {
     app.logger.info({ url: request.url, query: request.query }, 'Email verification request received');
   }
 
-  // Log everything about OAuth callbacks so we can see what fails inside
-  // Better Auth when Google redirects back.
-  if (request.url.startsWith('/api/auth/callback/')) {
+  // Log every /api/auth/* hit so we can trace the full OAuth flow,
+  // not just the callback path. Skip the debug routes themselves to
+  // avoid noisy self-traces.
+  if (
+    request.url.startsWith('/api/auth/') &&
+    !request.url.startsWith('/api/auth/debug-') &&
+    !request.url.startsWith('/api/auth/ok')
+  ) {
     const entry = {
       ts: new Date().toISOString(),
       phase: 'request',
+      method: request.method,
       url: request.url,
       query: request.query,
       host: request.headers.host,
       referer: request.headers.referer,
     };
-    app.logger.info(entry, 'OAuth callback received');
+    app.logger.info(entry, 'Auth route hit');
     pushAuthDebugLog(entry);
   }
 });
@@ -227,10 +233,14 @@ function pushAuthDebugLog(entry: any) {
 }
 
 app.fastify.addHook('onSend', async (request, reply, payload) => {
-  // Capture what Better Auth sends back for OAuth callbacks (status,
-  // Location header, body preview) so we can see how/why the flow
+  // Capture what Better Auth sends back for every /api/auth/* hit
+  // (excluding debug/health checks) so we can see how/why the flow
   // ended where it did.
-  if (request.url.startsWith('/api/auth/callback/') || request.url.startsWith('/api/auth/error')) {
+  if (
+    request.url.startsWith('/api/auth/') &&
+    !request.url.startsWith('/api/auth/debug-') &&
+    !request.url.startsWith('/api/auth/ok')
+  ) {
     const entry: any = {
       ts: new Date().toISOString(),
       phase: 'response',
@@ -262,7 +272,15 @@ app.fastify.get('/api/auth/debug-logs', async () => ({
 app.fastify.get<{ Querystring: Record<string, string> }>('/', async (request, reply) => {
   const query = request.query || {};
   if (query.error || query.error_description) {
-    app.logger.warn({ query, headers: request.headers }, 'OAuth error redirect landed on /');
+    const entry = {
+      ts: new Date().toISOString(),
+      phase: 'root-error-landing',
+      url: request.url,
+      query,
+      referer: request.headers.referer,
+    };
+    app.logger.warn(entry, 'OAuth error redirect landed on /');
+    pushAuthDebugLog(entry);
     // If this came from a mobile OAuth flow, bounce to the app deep link
     // so the user actually returns to the app with the error info.
     const deepLink = `childcosts://auth-callback?${new URLSearchParams(query as Record<string, string>).toString()}`;
