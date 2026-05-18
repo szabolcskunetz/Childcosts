@@ -228,6 +228,15 @@ export function registerAuthRoutes(app: App) {
         // injects under (e.g. PUBLIC_URL, APP_URL, etc.).
         allEnvNames: Object.keys(process.env).sort(),
       },
+      // Confirm whether the @better-auth/expo server plugin was loaded.
+      expoPluginInstalled: await (async () => {
+        try {
+          await import('@better-auth/expo');
+          return true;
+        } catch {
+          return false;
+        }
+      })(),
     };
   });
 
