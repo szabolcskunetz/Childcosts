@@ -274,6 +274,46 @@ app.fastify.addHook('onSend', async (request, reply, payload) => {
     app.logger.info(entry, 'OAuth callback response');
     pushAuthDebugLog(entry);
   }
+
+  // On a successful social-callback redirect, copy the Better Auth
+  // session token from the Set-Cookie header into the redirect URL as
+  // `?token=...`. The mobile client opens this redirect via
+  // WebBrowser.openAuthSessionAsync and can only see the URL, not the
+  // Set-Cookie header — so without this hop the session would never
+  // reach the app's storage and the user would still appear signed out.
+  if (
+    request.url.startsWith('/api/auth/callback/') &&
+    reply.statusCode >= 300 && reply.statusCode < 400
+  ) {
+    const location = reply.getHeader('location');
+    if (typeof location === 'string') {
+      const setCookieRaw = reply.getHeader('set-cookie');
+      const setCookies = Array.isArray(setCookieRaw)
+        ? setCookieRaw
+        : setCookieRaw
+          ? [String(setCookieRaw)]
+          : [];
+      let sessionToken: string | null = null;
+      for (const c of setCookies) {
+        const m = c.match(/better-auth\.session_token=([^;]+)/);
+        if (m && m[1] && m[1] !== '') {
+          sessionToken = decodeURIComponent(m[1]);
+          break;
+        }
+      }
+      if (sessionToken) {
+        try {
+          const url = new URL(location);
+          url.searchParams.set('token', sessionToken);
+          reply.header('Location', url.toString());
+          app.logger.info({ originalLocation: location, hasToken: true }, 'Appended session token to OAuth redirect');
+        } catch {
+          // location wasn't a full URL; pass through unchanged
+        }
+      }
+    }
+  }
+
   return payload;
 });
 
