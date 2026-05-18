@@ -13,15 +13,20 @@ import { BACKEND_URL } from "@/utils/api";
 // of { [cookieName]: { value, expires } }. We use storagePrefix
 // "childcosts" in lib/auth.ts, so the key is "childcosts_cookie".
 //
-// After our OAuth flow appends ?token=<session-token> to the deep
-// link, we need to write the token into that exact slot so the
-// auth client picks it up on the next /api/auth/get-session call.
+// IMPORTANT: when Better Auth sets the cookie over HTTPS it uses the
+// `__Secure-` prefix to prevent the cookie from ever being sent over
+// plain HTTP (browser/RFC enforced). Our production backend is always
+// HTTPS, so the actual cookie name is `__Secure-better-auth.session_token`.
+// Storing it under the plain name caused the client to send a cookie
+// the server didn't recognize, and Better Auth treated each
+// /api/auth/get-session call as anonymous (returning null).
 const EXPO_AUTH_COOKIE_KEY = "childcosts_cookie";
-const BETTER_AUTH_COOKIE_NAME = "better-auth.session_token";
+const DEFAULT_BETTER_AUTH_COOKIE_NAME = "__Secure-better-auth.session_token";
 
-async function storeBetterAuthSessionToken(token: string) {
+async function storeBetterAuthSessionToken(token: string, cookieName?: string | null) {
+  const name = cookieName || DEFAULT_BETTER_AUTH_COOKIE_NAME;
   const payload = JSON.stringify({
-    [BETTER_AUTH_COOKIE_NAME]: { value: token, expires: null },
+    [name]: { value: token, expires: null },
   });
   if (Platform.OS === "web") {
     try { localStorage.setItem(EXPO_AUTH_COOKIE_KEY, payload); } catch {}
@@ -614,10 +619,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           const token =
             returned.searchParams.get("token") ||
             returned.searchParams.get("better_auth_token");
+          const cookieName = returned.searchParams.get("cookieName");
           if (token) {
             await setBearerToken(token);
-            await storeBetterAuthSessionToken(token);
-            debugLog("bearer-token-set", { fromQuery: true, expoStorage: true });
+            await storeBetterAuthSessionToken(token, cookieName);
+            debugLog("bearer-token-set", { fromQuery: true, expoStorage: true, cookieName });
           } else {
             debugLog("bearer-token-missing", { url: finalUrl.slice(0, 300) });
           }

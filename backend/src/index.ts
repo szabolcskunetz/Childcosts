@@ -309,11 +309,17 @@ app.fastify.addHook('onSend', async (request, reply, payload) => {
         : setCookieRaw
           ? [String(setCookieRaw)]
           : [];
+      // Capture both the full cookie name (e.g. __Secure-better-auth.session_token)
+      // and the token value, then surface both to the client so it can
+      // store the token under the exact name Better Auth will accept on
+      // subsequent requests.
       let sessionToken: string | null = null;
+      let sessionCookieName: string | null = null;
       for (const c of setCookies) {
-        const m = c.match(/better-auth\.session_token=([^;]+)/);
-        if (m && m[1] && m[1] !== '') {
-          sessionToken = decodeURIComponent(m[1]);
+        const m = c.match(/((?:__Secure-|__Host-)?better-auth\.session_token)=([^;]+)/);
+        if (m && m[2] && m[2] !== '') {
+          sessionCookieName = m[1];
+          sessionToken = decodeURIComponent(m[2]);
           break;
         }
       }
@@ -321,8 +327,11 @@ app.fastify.addHook('onSend', async (request, reply, payload) => {
         try {
           const url = new URL(location);
           url.searchParams.set('token', sessionToken);
+          if (sessionCookieName) {
+            url.searchParams.set('cookieName', sessionCookieName);
+          }
           reply.header('Location', url.toString());
-          app.logger.info({ originalLocation: location, hasToken: true }, 'Appended session token to OAuth redirect');
+          app.logger.info({ originalLocation: location, hasToken: true, cookieName: sessionCookieName }, 'Appended session token to OAuth redirect');
         } catch {
           // location wasn't a full URL; pass through unchanged
         }
