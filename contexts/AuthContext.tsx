@@ -526,64 +526,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         debugLog("opening-browser", { callbackURL });
 
-        // Race the browser session against a deep link listener. On
-        // Android the system intent filter for childcosts://* often
-        // claims the redirect before openAuthSessionAsync's URL match
-        // logic runs, so the browser returns 'dismiss' even though the
-        // OAuth completed and the deep link reached the app.
-        const deepLinkPromise = new Promise<{ url: string }>((resolve) => {
+        // Skip openAuthSessionAsync entirely. On this device it
+        // dismisses the Custom Tab the moment Google starts redirecting
+        // to the backend, before the browser even loads the callback
+        // URL — so the backend never sees /api/auth/callback/google.
+        //
+        // Instead: open the OAuth URL in the system browser via
+        // Linking.openURL. The system handles the full redirect chain
+        // (Google -> backend -> childcosts://). When the deep link
+        // fires, our intent filter brings the app to foreground and
+        // the Linking 'url' listener below resolves with the token.
+        const deepLinkPromise = new Promise<string>((resolve) => {
           const sub = Linking.addEventListener("url", (evt) => {
             try {
-              if (evt?.url && evt.url.startsWith("childcosts://")) {
+              if (evt?.url && evt.url.startsWith("childcosts://auth-callback")) {
                 sub.remove();
-                resolve({ url: evt.url });
+                resolve(evt.url);
               }
             } catch {}
           });
         });
 
-        let browserResult: any = null;
-        let deepLinkUrl: string | null = null;
         try {
-          const winner = await Promise.race([
-            WebBrowser.openAuthSessionAsync(oauthUrl, callbackURL).then((r) => ({ kind: "browser" as const, r })),
-            deepLinkPromise.then((d) => ({ kind: "link" as const, url: d.url })),
-          ]);
-          if (winner.kind === "browser") {
-            browserResult = winner.r;
-          } else {
-            deepLinkUrl = winner.url;
-            // Make sure the browser closes too so the user lands back in the app.
-            try { WebBrowser.dismissBrowser(); } catch {}
-          }
+          await Linking.openURL(oauthUrl);
         } catch (e: any) {
-          debugLog("openAuthSessionAsync-threw", { message: e?.message, stack: e?.stack });
-          throw new Error(`Browser session threw: ${e?.message || e}`);
+          debugLog("linking-openURL-threw", { message: e?.message });
+          throw new Error(`Could not open browser: ${e?.message || e}`);
         }
 
-        // If the browser closed before the deep link arrived, give the
-        // OS a moment in case the link is still on its way.
-        if (browserResult && browserResult.type !== "success" && !deepLinkUrl) {
-          try {
-            deepLinkUrl = await Promise.race([
-              deepLinkPromise.then((d) => d.url),
-              new Promise<string | null>((resolve) => setTimeout(() => resolve(null), 1500)),
-            ]);
-          } catch {}
-        }
+        const TIMEOUT_MS = 3 * 60 * 1000;
+        const finalUrl: string | null = await Promise.race([
+          deepLinkPromise,
+          new Promise<string | null>((resolve) => setTimeout(() => resolve(null), TIMEOUT_MS)),
+        ]);
 
-        const finalUrl: string | null = deepLinkUrl || (browserResult?.url ?? null);
         debugLog("browser-result", {
-          type: browserResult?.type ?? "deep-link",
+          type: finalUrl ? "deep-link" : "timeout",
           finalUrl: finalUrl ? finalUrl.slice(0, 500) : null,
         });
 
         if (!finalUrl) {
-          throw new Error(`Sign in was ${browserResult?.type || "dismiss"} (url=none)`);
+          throw new Error(
+            `Google sign-in timed out. Browser may have failed to return to the app.`
+          );
         }
 
-        // Extract bearer token from the callback URL (server adds it in
-        // the OAuth callback redirect — see backend onSend hook).
+        // Try to close the system browser tab so the user lands back in
+        // our app cleanly. This is best-effort and platform-dependent.
+        try { WebBrowser.dismissBrowser(); } catch {}
+
+        // Extract bearer token from the deep link URL (server appends
+        // it in the OAuth callback redirect — see backend onSend hook).
         try {
           const returned = new URL(finalUrl);
           const token =
