@@ -208,9 +208,11 @@ export default function AuthScreen() {
           message: "Please allow popups for this site to use social sign-in.",
         });
       } else {
+        // Surface the underlying error text verbatim so we can debug
+        // OAuth issues against the installed APK without dev tools.
         setErrorModal({
           visible: true,
-          message: `${provider.charAt(0).toUpperCase() + provider.slice(1)} sign-in failed. ${errorMessage}`,
+          message: `${provider.charAt(0).toUpperCase() + provider.slice(1)} sign-in failed.\n\n${errorMessage}`,
         });
       }
     } finally {

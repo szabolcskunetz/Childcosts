@@ -480,6 +480,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const callbackURL = Linking.createURL("auth-callback");
         console.log(`[Auth] Starting ${provider} OAuth, deep link:`, callbackURL);
 
+        // Ship a breadcrumb to the backend ring buffer so we can read
+        // what the client saw even when remote console is unavailable.
+        const debugLog = (event: string, data?: any) => {
+          try {
+            fetch(`${BACKEND_URL}/api/auth/debug-client-log`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ source: "AuthContext.signInWithSocial", event, data }),
+            }).catch(() => {});
+          } catch {}
+        };
+
+        debugLog("start", { provider, callbackURL });
+
         const startRes = await fetch(`${BACKEND_URL}/api/auth/sign-in/social`, {
           method: "POST",
           headers: {
@@ -500,13 +514,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error(`No OAuth URL returned by backend for ${provider}`);
         }
 
-        const WebBrowser = await import("expo-web-browser");
-        console.log(`[Auth] Opening OAuth URL`);
-        const result = await WebBrowser.openAuthSessionAsync(oauthUrl, callbackURL);
-        console.log(`[Auth] OAuth browser result:`, result.type);
+        debugLog("sign-in-social-response", { startStatus: startRes.status, oauthHost: (() => { try { return new URL(oauthUrl).host; } catch { return null; } })() });
+
+        let WebBrowser: typeof import("expo-web-browser");
+        try {
+          WebBrowser = await import("expo-web-browser");
+        } catch (e: any) {
+          debugLog("webbrowser-import-failed", { message: e?.message });
+          throw new Error(`expo-web-browser unavailable: ${e?.message || e}`);
+        }
+
+        debugLog("opening-browser", { callbackURL });
+        let result: any;
+        try {
+          result = await WebBrowser.openAuthSessionAsync(oauthUrl, callbackURL);
+        } catch (e: any) {
+          debugLog("openAuthSessionAsync-threw", { message: e?.message, stack: e?.stack });
+          throw new Error(`Browser session threw: ${e?.message || e}`);
+        }
+        debugLog("browser-result", {
+          type: result?.type,
+          url: result?.url ? result.url.slice(0, 500) : null,
+          errorCode: (result as any)?.errorCode,
+        });
 
         if (result.type !== "success") {
-          throw new Error(`Sign in was ${result.type}`);
+          throw new Error(`Sign in was ${result.type} (url=${result?.url || 'none'})`);
         }
 
         // Best-effort: the callback URL may carry a bearer token if the
@@ -542,15 +575,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (error: any) {
       console.error(`${provider} sign in failed:`, error);
-      
-      // Provide user-friendly error messages
-      if (error.message?.includes("cancelled") || error.message?.includes("canceled")) {
+      // Re-throw with the underlying message preserved so the auth
+      // screen can show what actually broke instead of a generic
+      // "google sign in failed. Please try again." string.
+      if (error?.message?.includes("cancelled") || error?.message?.includes("canceled")) {
         throw new Error("Sign in was cancelled");
-      } else if (error.message?.includes("network") || error.message?.includes("fetch")) {
-        throw new Error("Network error. Please check your internet connection and try again.");
-      } else {
-        throw new Error(`${provider} sign in failed. Please try again.`);
       }
+      throw error instanceof Error ? error : new Error(String(error));
     }
   };
 
