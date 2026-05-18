@@ -323,6 +323,24 @@ app.fastify.get('/api/auth/debug-logs', async () => ({
   entries: AUTH_DEBUG_LOG.slice(),
 }));
 
+// Accept client-side log entries so the mobile app can surface what
+// it observed (e.g. WebBrowser.openAuthSessionAsync result) into our
+// debug ring buffer without needing remote console access.
+app.fastify.post<{ Body: { source?: string; event?: string; data?: any } }>(
+  '/api/auth/debug-client-log',
+  async (request) => {
+    const { source, event, data } = request.body || {};
+    pushAuthDebugLog({
+      ts: new Date().toISOString(),
+      phase: 'client',
+      source: source || 'unknown',
+      event: event || 'log',
+      data,
+    });
+    return { ok: true };
+  }
+);
+
 // Catch the root path with an error query (Better Auth's default error
 // redirect target when no frontend URL is configured). Surface the full
 // query string and any other context so we stop seeing a bare 404 and can
