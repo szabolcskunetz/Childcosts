@@ -4,6 +4,20 @@ import * as appSchema from './db/schema.js';
 import * as authSchema from './db/auth-schema.js';
 import { eq } from 'drizzle-orm';
 
+// Better Auth's Expo server plugin. Provides the
+// /api/auth/expo-authorization-proxy route and the deep-link callback
+// behavior that pairs with the @better-auth/expo client plugin used
+// in the mobile app. Imported lazily so a missing package doesn't
+// crash the backend before deps have been installed.
+let expoAuthPlugin: any = null;
+try {
+  // @ts-ignore - resolved at runtime
+  const mod = await import('@better-auth/expo');
+  expoAuthPlugin = (mod as any).expo?.() ?? null;
+} catch (e) {
+  // package not installed yet — fall back to our manual workarounds
+}
+
 // Import route registration functions
 import { registerParticipantsRoutes } from './routes/participants.js';
 import { registerExpensesRoutes } from './routes/expenses.js';
@@ -162,6 +176,11 @@ app.withAuth({
       clientSecret: process.env.GITHUB_CLIENT_SECRET || "",
     },
   },
+
+  // Mobile (Expo) integration. Wires up the server side of
+  // @better-auth/expo so the mobile client's signIn.social() flow
+  // works without our ad-hoc workarounds.
+  ...(expoAuthPlugin ? { plugins: [expoAuthPlugin] } : {}),
 });
 
 // Better Auth's CSRF check rejects requests with a missing or null Origin
