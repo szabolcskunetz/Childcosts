@@ -459,41 +459,84 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await setBearerToken(token);
         await fetchUser();
       } else {
-        // Native: Use expo-linking to generate a proper deep link
+        // Native: bypass the @better-auth/expo client's social flow. It
+        // calls openAuthSessionAsync with an internal proxy and expects
+        // the server-side @better-auth/expo plugin to redirect to the
+        // deep link with ?cookie=<session>. We don't have that plugin
+        // server-side, so the SDK silently fails when the deep link
+        // arrives without the cookie param.
+        //
+        // Instead, drive the flow ourselves:
+        //   1. POST /api/auth/sign-in/social to get the Google OAuth URL
+        //   2. Open the OAuth URL directly with openAuthSessionAsync,
+        //      watching for the deep link `childcosts://auth-callback`
+        //   3. The backend's /api/auth/callback/google processes Google's
+        //      code, sets a Better Auth session, then redirects to the
+        //      deep link — the same response Better Auth produces for
+        //      web clients.
+        //   4. After openAuthSessionAsync returns, ask the backend for
+        //      the current session (cookie or bearer token will be set)
+        //      and pull the user.
         const callbackURL = Linking.createURL("auth-callback");
-        console.log(`[Auth] Starting ${provider} OAuth with callback:`, callbackURL);
-        
-        await authClient.signIn.social({
-          provider,
-          callbackURL,
+        console.log(`[Auth] Starting ${provider} OAuth, deep link:`, callbackURL);
+
+        const startRes = await fetch(`${BACKEND_URL}/api/auth/sign-in/social`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            // Synthesize an Origin so Better Auth's CSRF check doesn't
+            // reject the request (server also injects this as a fallback).
+            Origin: BACKEND_URL,
+          },
+          body: JSON.stringify({ provider, callbackURL }),
         });
-        
-        // Wait a moment for the OAuth flow to complete
-        // The auth-callback screen will handle the token exchange
-        console.log(`[Auth] ${provider} OAuth initiated, waiting for callback...`);
-        
-        // Poll for session after OAuth redirect
+        if (!startRes.ok) {
+          const text = await startRes.text();
+          throw new Error(`Failed to start ${provider} OAuth: ${startRes.status} ${text}`);
+        }
+        const startData = await startRes.json();
+        const oauthUrl = startData?.url;
+        if (!oauthUrl) {
+          throw new Error(`No OAuth URL returned by backend for ${provider}`);
+        }
+
+        const WebBrowser = await import("expo-web-browser");
+        console.log(`[Auth] Opening OAuth URL`);
+        const result = await WebBrowser.openAuthSessionAsync(oauthUrl, callbackURL);
+        console.log(`[Auth] OAuth browser result:`, result.type);
+
+        if (result.type !== "success") {
+          throw new Error(`Sign in was ${result.type}`);
+        }
+
+        // Best-effort: the callback URL may carry a bearer token if the
+        // backend chose to surface one. Otherwise we rely on the Better
+        // Auth session cookie having been set during the callback.
+        try {
+          const returned = new URL(result.url);
+          const token =
+            returned.searchParams.get("token") ||
+            returned.searchParams.get("better_auth_token");
+          if (token) {
+            await setBearerToken(token);
+          }
+        } catch {}
+
+        // Pull the session a few times — Better Auth needs a moment.
         let attempts = 0;
         const maxAttempts = 10;
         const pollInterval = setInterval(async () => {
           attempts++;
-          console.log(`[Auth] Polling for session (attempt ${attempts}/${maxAttempts})...`);
-          
           try {
             const session = await authClient.getSession();
             if (session?.data?.user) {
-              console.log(`[Auth] Session found after ${attempts} attempts`);
               clearInterval(pollInterval);
               await fetchUser();
             } else if (attempts >= maxAttempts) {
-              console.log('[Auth] Max polling attempts reached, stopping');
               clearInterval(pollInterval);
             }
           } catch (err) {
-            console.error('[Auth] Error polling session:', err);
-            if (attempts >= maxAttempts) {
-              clearInterval(pollInterval);
-            }
+            if (attempts >= maxAttempts) clearInterval(pollInterval);
           }
         }, 1000);
       }
