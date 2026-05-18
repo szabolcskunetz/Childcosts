@@ -48,10 +48,16 @@ export async function setBearerToken(token: string) {
 }
 
 export async function clearAuthTokens() {
+  // Also clear the @better-auth/expo client's cookie storage so a
+  // logged-out user is logged out everywhere. See AuthContext for the
+  // matching key derivation (storagePrefix "childcosts" + "_cookie").
+  const EXPO_AUTH_COOKIE_KEY = "childcosts_cookie";
   if (Platform.OS === "web") {
     localStorage.removeItem(BEARER_TOKEN_KEY);
+    try { localStorage.removeItem(EXPO_AUTH_COOKIE_KEY); } catch {}
   } else {
     await SecureStore.deleteItemAsync(BEARER_TOKEN_KEY);
+    try { await SecureStore.deleteItemAsync(EXPO_AUTH_COOKIE_KEY); } catch {}
   }
 }
 

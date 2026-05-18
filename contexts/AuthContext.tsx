@@ -3,9 +3,32 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
 import { Platform } from "react-native";
 import * as Linking from "expo-linking";
+import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authClient, setBearerToken, clearAuthTokens } from "@/lib/auth";
 import { BACKEND_URL } from "@/utils/api";
+
+// The @better-auth/expo client stores its session under SecureStore
+// (or localStorage on web) at `${storagePrefix}_cookie` as a JSON map
+// of { [cookieName]: { value, expires } }. We use storagePrefix
+// "childcosts" in lib/auth.ts, so the key is "childcosts_cookie".
+//
+// After our OAuth flow appends ?token=<session-token> to the deep
+// link, we need to write the token into that exact slot so the
+// auth client picks it up on the next /api/auth/get-session call.
+const EXPO_AUTH_COOKIE_KEY = "childcosts_cookie";
+const BETTER_AUTH_COOKIE_NAME = "better-auth.session_token";
+
+async function storeBetterAuthSessionToken(token: string) {
+  const payload = JSON.stringify({
+    [BETTER_AUTH_COOKIE_NAME]: { value: token, expires: null },
+  });
+  if (Platform.OS === "web") {
+    try { localStorage.setItem(EXPO_AUTH_COOKIE_KEY, payload); } catch {}
+  } else {
+    await SecureStore.setItemAsync(EXPO_AUTH_COOKIE_KEY, payload);
+  }
+}
 
 const LOCAL_USER_ID_KEY = "@childcosts_local_user_id";
 const ALL_USER_IDS_KEY = "@childcosts_all_user_ids";
@@ -581,8 +604,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // our app cleanly. This is best-effort and platform-dependent.
         try { WebBrowser.dismissBrowser(); } catch {}
 
-        // Extract bearer token from the deep link URL (server appends
-        // it in the OAuth callback redirect — see backend onSend hook).
+        // Extract session token from the deep link URL (server appends
+        // it in the OAuth callback redirect — see backend onSend hook)
+        // and store it in BOTH locations so subsequent requests pick
+        // it up: our app-level SecureStore key, and the @better-auth/expo
+        // client's internal cookie storage.
         try {
           const returned = new URL(finalUrl);
           const token =
@@ -590,11 +616,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             returned.searchParams.get("better_auth_token");
           if (token) {
             await setBearerToken(token);
-            debugLog("bearer-token-set", { fromQuery: true });
+            await storeBetterAuthSessionToken(token);
+            debugLog("bearer-token-set", { fromQuery: true, expoStorage: true });
           } else {
             debugLog("bearer-token-missing", { url: finalUrl.slice(0, 300) });
           }
-        } catch {}
+        } catch (e: any) {
+          debugLog("token-store-threw", { message: e?.message });
+        }
 
         // Pull the session a few times — Better Auth needs a moment.
         let attempts = 0;
