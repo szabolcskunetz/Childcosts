@@ -8,6 +8,78 @@ export function registerAuthRoutes(app: App) {
   // Better Auth provides standard auth endpoints at /api/auth/*
   // (sign-up, sign-in, verify-email, reset-password, etc.)
 
+  // GET /api/auth/initiate-social/:provider?callbackURL=...
+  //
+  // Browser-initiated entry point for the OAuth flow. The mobile app
+  // sends the user here via Linking.openURL so the browser owns the
+  // whole flow — POST to /sign-in/social, redirect to Google, return
+  // through /api/auth/callback/google — in a single cookie session.
+  // The previous design POSTed from the app (no shared cookies) and
+  // then opened the Google URL in the browser, which made Better Auth
+  // fail the callback with state_mismatch because the state cookie
+  // it set on the POST response never reached the browser.
+  app.fastify.get<{
+    Params: { provider: string };
+    Querystring: { callbackURL?: string };
+  }>('/api/auth/initiate-social/:provider', async (request, reply) => {
+    const { provider } = request.params;
+    const callbackURL = request.query.callbackURL || 'childcosts://auth-callback';
+    const allowed = new Set(['google', 'apple', 'github']);
+    if (!allowed.has(provider)) {
+      reply.code(400);
+      return { error: `Unsupported provider: ${provider}` };
+    }
+
+    const host = request.headers.host;
+    const proto = (request.headers['x-forwarded-proto'] as string) || 'https';
+    const selfBase = process.env.BETTER_AUTH_URL || `${proto}://${host}`;
+    const target = `${selfBase}/api/auth/sign-in/social`;
+
+    try {
+      const upstream = await fetch(target, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Forward the browser's Origin so Better Auth's CSRF check
+          // sees a valid same-origin request.
+          Origin: selfBase,
+        },
+        body: JSON.stringify({ provider, callbackURL }),
+        redirect: 'manual',
+      });
+
+      // Mirror any Set-Cookie headers from Better Auth back to the
+      // user's browser. These contain the state/PKCE binding cookie
+      // that the callback step will read to verify the OAuth response.
+      const setCookieHeaders = upstream.headers.getSetCookie?.() || [];
+      if (Array.isArray(setCookieHeaders) && setCookieHeaders.length > 0) {
+        reply.header('Set-Cookie', setCookieHeaders);
+      } else {
+        const single = upstream.headers.get('set-cookie');
+        if (single) reply.header('Set-Cookie', single);
+      }
+
+      const upstreamText = await upstream.text();
+      let parsed: any = null;
+      try { parsed = JSON.parse(upstreamText); } catch {}
+
+      const oauthURL = parsed?.url;
+      if (!oauthURL) {
+        app.logger.warn({ upstreamStatus: upstream.status, body: upstreamText.slice(0, 500) }, 'initiate-social: no oauthURL in upstream response');
+        reply.code(502);
+        return { error: 'Upstream sign-in/social returned no URL', body: upstreamText.slice(0, 500) };
+      }
+
+      reply.header('Location', oauthURL);
+      reply.code(302);
+      return '';
+    } catch (e: any) {
+      app.logger.error({ err: e?.message }, 'initiate-social failed');
+      reply.code(500);
+      return { error: e?.message || 'initiate-social failed' };
+    }
+  });
+
   // GET /api/auth/expo-authorization-proxy?authorizationURL=...
   //
   // The @better-auth/expo client opens this URL in the system browser

@@ -494,27 +494,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         debugLog("start", { provider, callbackURL });
 
-        const startRes = await fetch(`${BACKEND_URL}/api/auth/sign-in/social`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            // Synthesize an Origin so Better Auth's CSRF check doesn't
-            // reject the request (server also injects this as a fallback).
-            Origin: BACKEND_URL,
-          },
-          body: JSON.stringify({ provider, callbackURL }),
-        });
-        if (!startRes.ok) {
-          const text = await startRes.text();
-          throw new Error(`Failed to start ${provider} OAuth: ${startRes.status} ${text}`);
-        }
-        const startData = await startRes.json();
-        const oauthUrl = startData?.url;
-        if (!oauthUrl) {
-          throw new Error(`No OAuth URL returned by backend for ${provider}`);
-        }
-
-        debugLog("sign-in-social-response", { startStatus: startRes.status, oauthHost: (() => { try { return new URL(oauthUrl).host; } catch { return null; } })() });
+        // Do NOT POST /sign-in/social from the app — that creates the
+        // OAuth state under an HTTP session/cookie that the system
+        // browser can't see. Better Auth then fails the callback with
+        // state_mismatch because the cookie isn't present.
+        //
+        // Instead, hand the entire flow to the browser via a server
+        // endpoint that initiates the sign-in: the same browser session
+        // sets the state cookie, follows the Google redirects, and is
+        // present when /api/auth/callback/google verifies the cookie.
+        const initiateUrl =
+          `${BACKEND_URL}/api/auth/initiate-social/${encodeURIComponent(provider)}` +
+          `?callbackURL=${encodeURIComponent(callbackURL)}`;
 
         let WebBrowser: typeof import("expo-web-browser");
         try {
@@ -524,7 +515,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error(`expo-web-browser unavailable: ${e?.message || e}`);
         }
 
-        debugLog("opening-browser", { callbackURL });
+        debugLog("opening-browser", { callbackURL, initiateUrl });
 
         // Skip openAuthSessionAsync entirely. On this device it
         // dismisses the Custom Tab the moment Google starts redirecting
@@ -549,10 +540,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         // Verify a browser is actually available before launching the
         // Intent.ACTION_VIEW (Android) / openURL: (iOS) under the hood.
-        // If the user has no browser installed (rare but possible), we
-        // get a clearer error than a silent failure.
         try {
-          const canOpen = await Linking.canOpenURL(oauthUrl);
+          const canOpen = await Linking.canOpenURL(initiateUrl);
           debugLog("can-open-url", { canOpen });
           if (!canOpen) {
             throw new Error(
@@ -560,14 +549,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             );
           }
         } catch (e: any) {
-          // canOpenURL itself can throw on misconfigured devices —
-          // treat that as best-effort and continue.
           if (e?.message?.startsWith("No browser available")) throw e;
           debugLog("canOpenURL-threw", { message: e?.message });
         }
 
         try {
-          await Linking.openURL(oauthUrl);
+          await Linking.openURL(initiateUrl);
         } catch (e: any) {
           debugLog("linking-openURL-threw", { message: e?.message });
           throw new Error(`Could not open browser: ${e?.message || e}`);
