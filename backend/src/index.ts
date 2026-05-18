@@ -228,6 +228,18 @@ app.fastify.addHook('onRequest', async (request, reply) => {
     !request.url.startsWith('/api/auth/debug-') &&
     !request.url.startsWith('/api/auth/ok')
   ) {
+    // Capture which credential headers are present (presence only,
+    // not value) so we can tell whether the client is sending the
+    // session cookie / bearer token we expect.
+    const cookieHeader = request.headers.cookie;
+    const authHeader = request.headers.authorization;
+    const cookieNames: string[] = [];
+    if (typeof cookieHeader === 'string' && cookieHeader.length > 0) {
+      for (const piece of cookieHeader.split(';')) {
+        const idx = piece.indexOf('=');
+        if (idx > 0) cookieNames.push(piece.slice(0, idx).trim());
+      }
+    }
     const entry = {
       ts: new Date().toISOString(),
       phase: 'request',
@@ -236,6 +248,10 @@ app.fastify.addHook('onRequest', async (request, reply) => {
       query: request.query,
       host: request.headers.host,
       referer: request.headers.referer,
+      hasCookie: !!cookieHeader,
+      cookieNames,
+      hasAuthorization: !!authHeader,
+      authScheme: typeof authHeader === 'string' ? authHeader.split(' ')[0] : null,
     };
     app.logger.info(entry, 'Auth route hit');
     pushAuthDebugLog(entry);
