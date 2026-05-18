@@ -547,6 +547,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           });
         });
 
+        // Verify a browser is actually available before launching the
+        // Intent.ACTION_VIEW (Android) / openURL: (iOS) under the hood.
+        // If the user has no browser installed (rare but possible), we
+        // get a clearer error than a silent failure.
+        try {
+          const canOpen = await Linking.canOpenURL(oauthUrl);
+          debugLog("can-open-url", { canOpen });
+          if (!canOpen) {
+            throw new Error(
+              "No browser available to start Google sign-in. Please install a browser (Chrome, Edge, Firefox, etc.) and try again."
+            );
+          }
+        } catch (e: any) {
+          // canOpenURL itself can throw on misconfigured devices —
+          // treat that as best-effort and continue.
+          if (e?.message?.startsWith("No browser available")) throw e;
+          debugLog("canOpenURL-threw", { message: e?.message });
+        }
+
         try {
           await Linking.openURL(oauthUrl);
         } catch (e: any) {
