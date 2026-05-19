@@ -593,9 +593,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         callbackURL,
       );
 
+      // Breadcrumb to the backend ring buffer so we can see what the
+      // SDK observed inside the openAuthSessionAsync flow, even when
+      // Cloud Run routes our debug-logs call to a different instance.
+      const debugLog = (event: string, data?: any) => {
+        try {
+          fetch(`${BACKEND_URL}/api/auth/debug-client-log`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ source: "AuthContext.signInWithSocial", event, data }),
+          }).catch(() => {});
+        } catch {}
+      };
+
+      debugLog("sdk-start", { provider, callbackURL });
+
       const result = await authClient.signIn.social({
         provider,
         callbackURL,
+      });
+
+      debugLog("sdk-returned", {
+        hasError: !!(result && typeof result === "object" && "error" in result && (result as any).error),
+        keys: result && typeof result === "object" ? Object.keys(result) : null,
       });
 
       if (
@@ -609,6 +629,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         structuredError.error = code;
         throw structuredError;
       }
+
+      // Peek at whether the SDK's openAuthSessionAsync actually
+      // surfaced a session cookie into storage.
+      try {
+        const stored = await (Platform.OS === "web"
+          ? Promise.resolve(localStorage.getItem("childcosts_cookie"))
+          : (await import("expo-secure-store")).getItemAsync("childcosts_cookie"));
+        const parsed = stored ? JSON.parse(stored) : null;
+        debugLog("cookie-storage-after-sdk", {
+          hasStorage: !!stored,
+          cookieNames: parsed ? Object.keys(parsed) : [],
+        });
+      } catch {}
 
       await waitForSocialSession();
     } catch (error: any) {
