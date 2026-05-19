@@ -1,8 +1,8 @@
 // Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 import { createApplication, resend } from "@specific-dev/framework";
-import * as appSchema from './db/schema.js';
-import * as authSchema from './db/auth-schema.js';
-import { eq } from 'drizzle-orm';
+import * as appSchema from "./db/schema.js";
+import * as authSchema from "./db/auth-schema.js";
+import { eq } from "drizzle-orm";
 
 // Better Auth's Expo server plugin. Provides the
 // /api/auth/expo-authorization-proxy route and the deep-link callback
@@ -12,18 +12,18 @@ import { eq } from 'drizzle-orm';
 let expoAuthPlugin: any = null;
 try {
   // @ts-ignore - resolved at runtime
-  const mod = await import('@better-auth/expo');
+  const mod = await import("@better-auth/expo");
   expoAuthPlugin = (mod as any).expo?.() ?? null;
 } catch (e) {
   // package not installed yet — fall back to our manual workarounds
 }
 
 // Import route registration functions
-import { registerParticipantsRoutes } from './routes/participants.js';
-import { registerExpensesRoutes } from './routes/expenses.js';
-import { registerSettlementsRoutes } from './routes/settlements.js';
-import { registerAuthRoutes } from './routes/auth.js';
-import { registerProjectsRoutes } from './routes/projects.js';
+import { registerParticipantsRoutes } from "./routes/participants.js";
+import { registerExpensesRoutes } from "./routes/expenses.js";
+import { registerSettlementsRoutes } from "./routes/settlements.js";
+import { registerAuthRoutes } from "./routes/auth.js";
+import { registerProjectsRoutes } from "./routes/projects.js";
 
 // Combine schemas
 const schema = { ...appSchema, ...authSchema };
@@ -57,14 +57,18 @@ app.withAuth({
 
     sendVerificationEmail: async ({ user, url }) => {
       try {
-        app.logger.info({ userId: user.id, email: user.email, verificationUrl: url }, 'Sending verification email on signup');
+        app.logger.info(
+          { userId: user.id, email: user.email, verificationUrl: url },
+          "Sending verification email on signup",
+        );
 
         // Send the verification email
-        resend.emails.send({
-          from: 'Child Expense Tracker <noreply@example.com>',
-          to: user.email,
-          subject: 'Verify your email address',
-          html: `
+        resend.emails
+          .send({
+            from: "Child Expense Tracker <noreply@example.com>",
+            to: user.email,
+            subject: "Verify your email address",
+            html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
               <h2>Welcome to Child Expense Tracker!</h2>
               <p>Thank you for signing up. Please verify your email address to complete your registration.</p>
@@ -82,17 +86,35 @@ app.withAuth({
               </p>
             </div>
           `,
-        }).then(result => {
-          if (result.error) {
-            app.logger.error({ err: result.error, userId: user.id, email: user.email }, 'Failed to send verification email');
-          } else {
-            app.logger.info({ emailId: result.data?.id, userId: user.id, email: user.email }, 'Verification email sent successfully');
-          }
-        }).catch(error => {
-          app.logger.error({ err: error, userId: user.id, email: user.email }, 'Error sending verification email');
-        });
+          })
+          .then((result) => {
+            if (result.error) {
+              app.logger.error(
+                { err: result.error, userId: user.id, email: user.email },
+                "Failed to send verification email",
+              );
+            } else {
+              app.logger.info(
+                {
+                  emailId: result.data?.id,
+                  userId: user.id,
+                  email: user.email,
+                },
+                "Verification email sent successfully",
+              );
+            }
+          })
+          .catch((error) => {
+            app.logger.error(
+              { err: error, userId: user.id, email: user.email },
+              "Error sending verification email",
+            );
+          });
       } catch (error) {
-        app.logger.error({ err: error, userId: user.id, email: user.email }, 'Unexpected error in verification email handler');
+        app.logger.error(
+          { err: error, userId: user.id, email: user.email },
+          "Unexpected error in verification email handler",
+        );
       }
     },
   },
@@ -105,14 +127,18 @@ app.withAuth({
     // Send password reset emails
     sendResetPassword: async ({ user, url }) => {
       try {
-        app.logger.info({ userId: user.id, email: user.email, resetUrl: url }, 'Sending password reset email');
+        app.logger.info(
+          { userId: user.id, email: user.email, resetUrl: url },
+          "Sending password reset email",
+        );
 
         // Send the password reset email
-        resend.emails.send({
-          from: 'Child Expense Tracker <noreply@example.com>',
-          to: user.email,
-          subject: 'Reset your password',
-          html: `
+        resend.emails
+          .send({
+            from: "Child Expense Tracker <noreply@example.com>",
+            to: user.email,
+            subject: "Reset your password",
+            html: `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
               <h2>Password Reset Request</h2>
               <p>We received a request to reset your password for your Child Expense Tracker account.</p>
@@ -133,17 +159,35 @@ app.withAuth({
               </p>
             </div>
           `,
-        }).then(result => {
-          if (result.error) {
-            app.logger.error({ err: result.error, userId: user.id, email: user.email }, 'Failed to send password reset email');
-          } else {
-            app.logger.info({ emailId: result.data?.id, userId: user.id, email: user.email }, 'Password reset email sent successfully');
-          }
-        }).catch(error => {
-          app.logger.error({ err: error, userId: user.id, email: user.email }, 'Error sending password reset email');
-        });
+          })
+          .then((result) => {
+            if (result.error) {
+              app.logger.error(
+                { err: result.error, userId: user.id, email: user.email },
+                "Failed to send password reset email",
+              );
+            } else {
+              app.logger.info(
+                {
+                  emailId: result.data?.id,
+                  userId: user.id,
+                  email: user.email,
+                },
+                "Password reset email sent successfully",
+              );
+            }
+          })
+          .catch((error) => {
+            app.logger.error(
+              { err: error, userId: user.id, email: user.email },
+              "Error sending password reset email",
+            );
+          });
       } catch (error) {
-        app.logger.error({ err: error, userId: user.id, email: user.email }, 'Unexpected error in password reset email handler');
+        app.logger.error(
+          { err: error, userId: user.id, email: user.email },
+          "Unexpected error in password reset email handler",
+        );
       }
     },
   },
@@ -158,8 +202,13 @@ app.withAuth({
     "*",
     "childcosts://",
     "childcosts://*",
+    "childcosts://**",
     "exp://",
     "exp://*",
+    "exp://**",
+    "exp://192.168.*.*:*/**",
+    "http://localhost:*",
+    "http://localhost:*/**",
   ],
 
   // Social sign-in providers. Always registered so the route exists;
@@ -192,11 +241,14 @@ app.withAuth({
 // don't send an Origin like browsers do. Inject one derived from the
 // request host so the check passes for /api/auth/* — same-origin by
 // definition, since the request hit our own server.
-app.fastify.addHook('onRequest', async (request) => {
-  if (request.url.startsWith('/api/auth/')) {
-    const headers = request.raw.headers as Record<string, string | string[] | undefined>;
+app.fastify.addHook("onRequest", async (request) => {
+  if (request.url.startsWith("/api/auth/")) {
+    const headers = request.raw.headers as Record<
+      string,
+      string | string[] | undefined
+    >;
     if (!headers.origin) {
-      const proto = (headers['x-forwarded-proto'] as string) || 'https';
+      const proto = (headers["x-forwarded-proto"] as string) || "https";
       const host = headers.host as string | undefined;
       if (host) {
         headers.origin = `${proto}://${host}`;
@@ -209,9 +261,12 @@ app.fastify.addHook('onRequest', async (request) => {
 const signInEmailStore = new Map<string, string>();
 
 // Add hook to capture email from sign-in requests
-app.fastify.addHook('onRequest', async (request, reply) => {
+app.fastify.addHook("onRequest", async (request, reply) => {
   // Only handle sign-in endpoint
-  if (request.url.startsWith('/api/auth/sign-in/email') && request.method === 'POST') {
+  if (
+    request.url.startsWith("/api/auth/sign-in/email") &&
+    request.method === "POST"
+  ) {
     try {
       // Get the email from the request body
       const body = request.body as any;
@@ -223,33 +278,40 @@ app.fastify.addHook('onRequest', async (request, reply) => {
         // Store the key in the reply object so we can retrieve it in onSend
         (reply as any)._signInEmailKey = key;
 
-        app.logger.debug({ email: body.email }, 'Captured sign-in email for verification resend if needed');
+        app.logger.debug(
+          { email: body.email },
+          "Captured sign-in email for verification resend if needed",
+        );
 
         // Clean up old entries to prevent memory leak
         for (const [k, _] of signInEmailStore) {
-          const timestamp = parseInt(k.split('-')[0]);
-          if (Date.now() - timestamp > 60000) { // Clean up entries older than 1 minute
+          const timestamp = parseInt(k.split("-")[0]);
+          if (Date.now() - timestamp > 60000) {
+            // Clean up entries older than 1 minute
             signInEmailStore.delete(k);
           }
         }
       }
     } catch (error) {
-      app.logger.debug({ err: error }, 'Could not capture sign-in email');
+      app.logger.debug({ err: error }, "Could not capture sign-in email");
     }
   }
 
   // Only handle email verification endpoint
-  if (request.url.startsWith('/api/auth/verify-email')) {
-    app.logger.info({ url: request.url, query: request.query }, 'Email verification request received');
+  if (request.url.startsWith("/api/auth/verify-email")) {
+    app.logger.info(
+      { url: request.url, query: request.query },
+      "Email verification request received",
+    );
   }
 
   // Log every /api/auth/* hit so we can trace the full OAuth flow,
   // not just the callback path. Skip the debug routes themselves to
   // avoid noisy self-traces.
   if (
-    request.url.startsWith('/api/auth/') &&
-    !request.url.startsWith('/api/auth/debug-') &&
-    !request.url.startsWith('/api/auth/ok')
+    request.url.startsWith("/api/auth/") &&
+    !request.url.startsWith("/api/auth/debug-") &&
+    !request.url.startsWith("/api/auth/ok")
   ) {
     // Capture which credential headers are present (presence only,
     // not value) so we can tell whether the client is sending the
@@ -257,15 +319,15 @@ app.fastify.addHook('onRequest', async (request, reply) => {
     const cookieHeader = request.headers.cookie;
     const authHeader = request.headers.authorization;
     const cookieNames: string[] = [];
-    if (typeof cookieHeader === 'string' && cookieHeader.length > 0) {
-      for (const piece of cookieHeader.split(';')) {
-        const idx = piece.indexOf('=');
+    if (typeof cookieHeader === "string" && cookieHeader.length > 0) {
+      for (const piece of cookieHeader.split(";")) {
+        const idx = piece.indexOf("=");
         if (idx > 0) cookieNames.push(piece.slice(0, idx).trim());
       }
     }
     const entry = {
       ts: new Date().toISOString(),
-      phase: 'request',
+      phase: "request",
       method: request.method,
       url: request.url,
       query: request.query,
@@ -274,9 +336,10 @@ app.fastify.addHook('onRequest', async (request, reply) => {
       hasCookie: !!cookieHeader,
       cookieNames,
       hasAuthorization: !!authHeader,
-      authScheme: typeof authHeader === 'string' ? authHeader.split(' ')[0] : null,
+      authScheme:
+        typeof authHeader === "string" ? authHeader.split(" ")[0] : null,
     };
-    app.logger.info(entry, 'Auth route hit');
+    app.logger.info(entry, "Auth route hit");
     pushAuthDebugLog(entry);
   }
 });
@@ -289,114 +352,41 @@ function pushAuthDebugLog(entry: any) {
   if (AUTH_DEBUG_LOG.length > 50) AUTH_DEBUG_LOG.shift();
 }
 
-app.fastify.addHook('onSend', async (request, reply, payload) => {
+app.fastify.addHook("onSend", async (request, reply, payload) => {
   // Capture what Better Auth sends back for every /api/auth/* hit
   // (excluding debug/health checks) so we can see how/why the flow
   // ended where it did.
   if (
-    request.url.startsWith('/api/auth/') &&
-    !request.url.startsWith('/api/auth/debug-') &&
-    !request.url.startsWith('/api/auth/ok')
+    request.url.startsWith("/api/auth/") &&
+    !request.url.startsWith("/api/auth/debug-") &&
+    !request.url.startsWith("/api/auth/ok")
   ) {
     const entry: any = {
       ts: new Date().toISOString(),
-      phase: 'response',
+      phase: "response",
       url: request.url,
       statusCode: reply.statusCode,
-      location: reply.getHeader('location'),
-      contentType: reply.getHeader('content-type'),
+      location: reply.getHeader("location"),
+      contentType: reply.getHeader("content-type"),
     };
     try {
-      const text = typeof payload === 'string' ? payload : payload?.toString?.() || '';
+      const text =
+        typeof payload === "string" ? payload : payload?.toString?.() || "";
       entry.body = text.slice(0, 500);
     } catch {}
-    app.logger.info(entry, 'OAuth callback response');
+    app.logger.info(entry, "OAuth callback response");
     pushAuthDebugLog(entry);
   }
 
-  // On a successful social-callback redirect, copy the Better Auth
-  // Set-Cookie header into the redirect URL so the mobile client can
-  // read it after the deep link round-trip. The @better-auth/expo
-  // 1.4.22 server plugin tries to do this but calls
-  // ctx.context.isTrustedOrigin which doesn't exist in better-auth
-  // 1.4.5 (silently returns undefined → early return), so we
-  // reimplement that behavior ourselves.
-  if (
-    request.url.startsWith('/api/auth/callback/') &&
-    reply.statusCode >= 300 && reply.statusCode < 400
-  ) {
-    const location = reply.getHeader('location');
-    if (typeof location === 'string') {
-      const setCookieRaw = reply.getHeader('set-cookie');
-      const setCookies = Array.isArray(setCookieRaw)
-        ? setCookieRaw
-        : setCookieRaw
-          ? [String(setCookieRaw)]
-          : [];
-
-      // Log Set-Cookie cookie names so we can verify Better Auth
-      // actually sets a session cookie on this response.
-      const setCookieNames = setCookies
-        .map((c) => {
-          const idx = c.indexOf('=');
-          return idx > 0 ? c.slice(0, idx).trim() : null;
-        })
-        .filter(Boolean);
-      pushAuthDebugLog({
-        ts: new Date().toISOString(),
-        phase: 'callback-set-cookie',
-        location,
-        setCookieNames,
-        setCookieCount: setCookies.length,
-      });
-
-      // Only act on deep-link redirects (childcosts://, exp://, etc.).
-      let isDeepLink = false;
-      try {
-        const proto = new URL(location).protocol;
-        isDeepLink = proto !== 'http:' && proto !== 'https:';
-      } catch {}
-
-      if (isDeepLink && setCookies.length > 0) {
-        // Pass the full Set-Cookie header value through as ?cookie=...
-        // — matches the contract the @better-auth/expo client plugin
-        // expects and our AuthContext parses on the receiving end.
-        const fullSetCookieHeader = setCookies.join(', ');
-
-        // Also extract the session token + its actual cookie name for
-        // backward compatibility with our older ?token=/?cookieName=
-        // client path.
-        let sessionToken: string | null = null;
-        let sessionCookieName: string | null = null;
-        for (const c of setCookies) {
-          const m = c.match(/((?:__Secure-|__Host-)?better-auth\.session_token)=([^;]+)/);
-          if (m && m[2] && m[2] !== '') {
-            sessionCookieName = m[1];
-            sessionToken = decodeURIComponent(m[2]);
-            break;
-          }
-        }
-
-        try {
-          const url = new URL(location);
-          url.searchParams.set('cookie', fullSetCookieHeader);
-          if (sessionToken) url.searchParams.set('token', sessionToken);
-          if (sessionCookieName) url.searchParams.set('cookieName', sessionCookieName);
-          reply.header('Location', url.toString());
-          app.logger.info(
-            { originalLocation: location, addedCookie: true, addedToken: !!sessionToken, cookieName: sessionCookieName },
-            'Appended session info to OAuth deep-link redirect'
-          );
-        } catch {}
-      }
-    }
-  }
+  // Session-cookie propagation for mobile OAuth callbacks is handled by
+  // the official @better-auth/expo server plugin. Do not duplicate it here;
+  // adding custom token/cookie query parameters caused inconsistent client state.
 
   return payload;
 });
 
 // Expose the recent OAuth events ring buffer.
-app.fastify.get('/api/auth/debug-logs', async () => ({
+app.fastify.get("/api/auth/debug-logs", async () => ({
   count: AUTH_DEBUG_LOG.length,
   entries: AUTH_DEBUG_LOG.slice(),
 }));
@@ -405,92 +395,110 @@ app.fastify.get('/api/auth/debug-logs', async () => ({
 // it observed (e.g. WebBrowser.openAuthSessionAsync result) into our
 // debug ring buffer without needing remote console access.
 app.fastify.post<{ Body: { source?: string; event?: string; data?: any } }>(
-  '/api/auth/debug-client-log',
+  "/api/auth/debug-client-log",
   async (request) => {
     const { source, event, data } = request.body || {};
     pushAuthDebugLog({
       ts: new Date().toISOString(),
-      phase: 'client',
-      source: source || 'unknown',
-      event: event || 'log',
+      phase: "client",
+      source: source || "unknown",
+      event: event || "log",
       data,
     });
     return { ok: true };
-  }
+  },
 );
 
 // Catch the root path with an error query (Better Auth's default error
 // redirect target when no frontend URL is configured). Surface the full
 // query string and any other context so we stop seeing a bare 404 and can
 // see what actually failed in the OAuth flow.
-app.fastify.get<{ Querystring: Record<string, string> }>('/', async (request, reply) => {
-  const query = request.query || {};
-  if (query.error || query.error_description) {
-    const entry = {
-      ts: new Date().toISOString(),
-      phase: 'root-error-landing',
-      url: request.url,
-      query,
-      referer: request.headers.referer,
-    };
-    app.logger.warn(entry, 'OAuth error redirect landed on /');
-    pushAuthDebugLog(entry);
-    // If this came from a mobile OAuth flow, bounce to the app deep link
-    // so the user actually returns to the app with the error info.
-    const deepLink = `childcosts://auth-callback?${new URLSearchParams(query as Record<string, string>).toString()}`;
-    reply.header('Location', deepLink);
-    reply.status(302);
-    return '';
-  }
-  return { ok: true, service: 'childcosts-backend' };
-});
+app.fastify.get<{ Querystring: Record<string, string> }>(
+  "/",
+  async (request, reply) => {
+    const query = request.query || {};
+    if (query.error || query.error_description) {
+      const entry = {
+        ts: new Date().toISOString(),
+        phase: "root-error-landing",
+        url: request.url,
+        query,
+        referer: request.headers.referer,
+      };
+      app.logger.warn(entry, "OAuth error redirect landed on /");
+      pushAuthDebugLog(entry);
+      // If this came from a mobile OAuth flow, bounce to the app deep link
+      // so the user actually returns to the app with the error info.
+      const deepLink = `childcosts://auth-callback?${new URLSearchParams(query as Record<string, string>).toString()}`;
+      reply.header("Location", deepLink);
+      reply.status(302);
+      return "";
+    }
+    return { ok: true, service: "childcosts-backend" };
+  },
+);
 
 // Add hook to intercept redirects after successful email verification
-app.fastify.addHook('onSend', async (request, reply, payload) => {
+app.fastify.addHook("onSend", async (request, reply, payload) => {
   // Handle email verification redirects (302 status with Location header)
-  if (request.url.startsWith('/api/auth/verify-email') && reply.statusCode === 302) {
-    const location = reply.getHeader('Location');
-    app.logger.info({
-      url: request.url,
-      statusCode: reply.statusCode,
-      location,
-      query: request.query
-    }, 'Email verification redirect detected');
+  if (
+    request.url.startsWith("/api/auth/verify-email") &&
+    reply.statusCode === 302
+  ) {
+    const location = reply.getHeader("Location");
+    app.logger.info(
+      {
+        url: request.url,
+        statusCode: reply.statusCode,
+        location,
+        query: request.query,
+      },
+      "Email verification redirect detected",
+    );
 
     // Extract callbackURL from query params if provided by frontend
     const url = new URL(request.url, `http://${request.headers.host}`);
-    const callbackURL = url.searchParams.get('callbackURL') || url.searchParams.get('callback_url');
+    const callbackURL =
+      url.searchParams.get("callbackURL") ||
+      url.searchParams.get("callback_url");
 
     // If there's a callback URL from the frontend, redirect there with success
     if (callbackURL) {
       try {
         const decodedCallback = decodeURIComponent(callbackURL);
         const redirectUrl = new URL(decodedCallback);
-        redirectUrl.searchParams.set('verified', 'true');
+        redirectUrl.searchParams.set("verified", "true");
 
-        app.logger.info({ redirectUrl: redirectUrl.toString() }, 'Redirecting to frontend callback URL');
-        reply.header('Location', redirectUrl.toString());
+        app.logger.info(
+          { redirectUrl: redirectUrl.toString() },
+          "Redirecting to frontend callback URL",
+        );
+        reply.header("Location", redirectUrl.toString());
         return payload;
       } catch (error) {
-        app.logger.error({ err: error, callbackURL }, 'Invalid callback URL');
+        app.logger.error({ err: error, callbackURL }, "Invalid callback URL");
       }
     }
 
     // If the redirect is to "/" (default Better Auth behavior), redirect to a mobile deep link or frontend
-    if (location === '/' || !location) {
+    if (location === "/" || !location) {
       // Use environment variable for frontend URL, or default to childcosts deep link
-      const frontendUrl = process.env.FRONTEND_URL || 'childcosts://auth-callback';
-      const redirectUrl = `${frontendUrl}${frontendUrl.includes('?') ? '&' : '?'}verified=true`;
+      const frontendUrl =
+        process.env.FRONTEND_URL || "childcosts://auth-callback";
+      const redirectUrl = `${frontendUrl}${frontendUrl.includes("?") ? "&" : "?"}verified=true`;
 
-      app.logger.info({ redirectUrl }, 'Redirecting to frontend app after verification');
-      reply.header('Location', redirectUrl);
+      app.logger.info(
+        { redirectUrl },
+        "Redirecting to frontend app after verification",
+      );
+      reply.header("Location", redirectUrl);
     }
 
     return payload;
   }
 
   // Only process auth endpoints for error handling
-  if (!request.url.startsWith('/api/auth/')) {
+  if (!request.url.startsWith("/api/auth/")) {
     return payload;
   }
 
@@ -501,27 +509,31 @@ app.fastify.addHook('onSend', async (request, reply, payload) => {
   }
 
   try {
-    const payloadStr = typeof payload === 'string' ? payload : payload?.toString() || '{}';
+    const payloadStr =
+      typeof payload === "string" ? payload : payload?.toString() || "{}";
     const body = JSON.parse(payloadStr);
 
     // Log the original error for debugging
-    app.logger.warn({
-      url: request.url,
-      method: request.method,
-      statusCode,
-      originalError: body,
-    }, 'Auth endpoint error being processed');
+    app.logger.warn(
+      {
+        url: request.url,
+        method: request.method,
+        statusCode,
+        originalError: body,
+      },
+      "Auth endpoint error being processed",
+    );
 
     // Enhance error messages based on endpoint and error type
-    const endpoint = request.url.replace('/api/auth/', '').split('?')[0];
+    const endpoint = request.url.replace("/api/auth/", "").split("?")[0];
     const method = request.method;
 
     // Sign in endpoint errors
-    if (endpoint === 'sign-in/email' && method === 'POST') {
+    if (endpoint === "sign-in/email" && method === "POST") {
       if (statusCode === 401) {
         // Check if error is about email verification
-        if (body.message?.includes('verif') || body.error?.includes('verif')) {
-          app.logger.info({}, 'Email verification required for login');
+        if (body.message?.includes("verif") || body.error?.includes("verif")) {
+          app.logger.info({}, "Email verification required for login");
 
           // Try to resend verification email
           try {
@@ -529,10 +541,16 @@ app.fastify.addHook('onSend', async (request, reply, payload) => {
             const email = emailKey ? signInEmailStore.get(emailKey) : undefined;
 
             if (email) {
-              app.logger.info({ email }, 'Resending verification email for unverified user attempting sign-in');
+              app.logger.info(
+                { email },
+                "Resending verification email for unverified user attempting sign-in",
+              );
 
               // Find the user by email to send verification email
-              const users = await app.db.select().from(authSchema.user).where(eq(authSchema.user.email, email));
+              const users = await app.db
+                .select()
+                .from(authSchema.user)
+                .where(eq(authSchema.user.email, email));
 
               if (users.length > 0) {
                 const foundUser = users[0];
@@ -540,15 +558,15 @@ app.fastify.addHook('onSend', async (request, reply, payload) => {
                 if (!foundUser.emailVerified) {
                   // Send verification email using Resend
                   const verificationEmailResult = await resend.emails.send({
-                    from: 'Child Expense Tracker <noreply@example.com>',
+                    from: "Child Expense Tracker <noreply@example.com>",
                     to: email,
-                    subject: 'Verify your email address',
+                    subject: "Verify your email address",
                     html: `
                       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                         <h2>Verify Your Email Address</h2>
                         <p>We noticed you tried to sign in to Child Expense Tracker. Your email address needs to be verified before you can access your account.</p>
                         <p style="margin: 30px 0;">
-                          <a href="${process.env.FRONTEND_URL || 'childcosts://auth-callback'}?action=verify-email" style="background-color: #3B82F6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                          <a href="${process.env.FRONTEND_URL || "childcosts://auth-callback"}?action=verify-email" style="background-color: #3B82F6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
                             Verify Email Address
                           </a>
                         </p>
@@ -563,9 +581,19 @@ app.fastify.addHook('onSend', async (request, reply, payload) => {
                   });
 
                   if (verificationEmailResult.error) {
-                    app.logger.warn({ err: verificationEmailResult.error, email }, 'Failed to resend verification email on sign-in attempt');
+                    app.logger.warn(
+                      { err: verificationEmailResult.error, email },
+                      "Failed to resend verification email on sign-in attempt",
+                    );
                   } else {
-                    app.logger.info({ emailId: verificationEmailResult.data?.id, email, userId: foundUser.id }, 'Verification email resent successfully for unverified sign-in attempt');
+                    app.logger.info(
+                      {
+                        emailId: verificationEmailResult.data?.id,
+                        email,
+                        userId: foundUser.id,
+                      },
+                      "Verification email resent successfully for unverified sign-in attempt",
+                    );
                   }
                 }
               }
@@ -576,12 +604,16 @@ app.fastify.addHook('onSend', async (request, reply, payload) => {
               }
             }
           } catch (error) {
-            app.logger.warn({ err: error }, 'Error attempting to resend verification email on sign-in');
+            app.logger.warn(
+              { err: error },
+              "Error attempting to resend verification email on sign-in",
+            );
           }
 
           return JSON.stringify({
-            error: 'EMAIL_NOT_VERIFIED',
-            message: 'Email not verified. A verification email has been sent to your inbox. Please verify your email to continue.',
+            error: "EMAIL_NOT_VERIFIED",
+            message:
+              "Email not verified. A verification email has been sent to your inbox. Please verify your email to continue.",
             statusCode: 401,
             needsVerification: true,
           });
@@ -589,150 +621,191 @@ app.fastify.addHook('onSend', async (request, reply, payload) => {
 
         // Invalid credentials
         return JSON.stringify({
-          error: 'INVALID_CREDENTIALS',
-          message: 'Invalid email or password',
+          error: "INVALID_CREDENTIALS",
+          message: "Invalid email or password",
           statusCode: 401,
         });
       }
     }
 
     // Sign up endpoint errors
-    if (endpoint === 'sign-up/email' && method === 'POST') {
+    if (endpoint === "sign-up/email" && method === "POST") {
       // Handle all validation and error status codes (400, 422, etc.)
       if (statusCode >= 400 && statusCode < 500) {
-        const msg = (body.message || body.error || '').toLowerCase();
+        const msg = (body.message || body.error || "").toLowerCase();
 
         // Email already exists
-        if (msg.includes('already') || msg.includes('exists') || msg.includes('duplicate') ||
-            msg.includes('unique') || msg.includes('constraint')) {
+        if (
+          msg.includes("already") ||
+          msg.includes("exists") ||
+          msg.includes("duplicate") ||
+          msg.includes("unique") ||
+          msg.includes("constraint")
+        ) {
           return JSON.stringify({
-            error: 'EMAIL_EXISTS',
-            message: 'An account with this email already exists',
+            error: "EMAIL_EXISTS",
+            message: "An account with this email already exists",
             statusCode: 422,
           });
         }
 
         // Email is required or missing
-        if (msg.includes('email') && (msg.includes('required') || msg.includes('missing'))) {
+        if (
+          msg.includes("email") &&
+          (msg.includes("required") || msg.includes("missing"))
+        ) {
           return JSON.stringify({
-            error: 'INVALID_EMAIL',
-            message: 'Email is required',
+            error: "INVALID_EMAIL",
+            message: "Email is required",
             statusCode: 422,
           });
         }
 
         // Invalid email format
-        if (msg.includes('email') && (msg.includes('invalid') || msg.includes('format') || msg.includes('valid'))) {
+        if (
+          msg.includes("email") &&
+          (msg.includes("invalid") ||
+            msg.includes("format") ||
+            msg.includes("valid"))
+        ) {
           return JSON.stringify({
-            error: 'INVALID_EMAIL',
-            message: 'Please enter a valid email address',
+            error: "INVALID_EMAIL",
+            message: "Please enter a valid email address",
             statusCode: 422,
           });
         }
 
         // Password is required or missing
-        if (msg.includes('password') && (msg.includes('required') || msg.includes('missing'))) {
+        if (
+          msg.includes("password") &&
+          (msg.includes("required") || msg.includes("missing"))
+        ) {
           return JSON.stringify({
-            error: 'PASSWORD_TOO_SHORT',
-            message: 'Password is required',
+            error: "PASSWORD_TOO_SHORT",
+            message: "Password is required",
             statusCode: 422,
           });
         }
 
         // Password too short
-        if (msg.includes('password') && (msg.includes('short') || msg.includes('length') || msg.includes('8') ||
-            msg.includes('minimum') || msg.includes('min') || msg.includes('least'))) {
+        if (
+          msg.includes("password") &&
+          (msg.includes("short") ||
+            msg.includes("length") ||
+            msg.includes("8") ||
+            msg.includes("minimum") ||
+            msg.includes("min") ||
+            msg.includes("least"))
+        ) {
           return JSON.stringify({
-            error: 'PASSWORD_TOO_SHORT',
-            message: 'Password must be at least 8 characters long',
+            error: "PASSWORD_TOO_SHORT",
+            message: "Password must be at least 8 characters long",
             statusCode: 422,
           });
         }
 
         // Generic email error
-        if (msg.includes('email')) {
+        if (msg.includes("email")) {
           return JSON.stringify({
-            error: 'INVALID_EMAIL',
-            message: 'Please enter a valid email address',
+            error: "INVALID_EMAIL",
+            message: "Please enter a valid email address",
             statusCode: 422,
           });
         }
 
         // Generic password error
-        if (msg.includes('password')) {
+        if (msg.includes("password")) {
           return JSON.stringify({
-            error: 'PASSWORD_TOO_SHORT',
-            message: 'Password must be at least 8 characters long',
+            error: "PASSWORD_TOO_SHORT",
+            message: "Password must be at least 8 characters long",
             statusCode: 422,
           });
         }
 
         // If no specific error detected, log and return generic validation error
-        app.logger.warn({
-          endpoint,
-          statusCode,
-          originalMessage: body.message || body.error,
-        }, 'Unhandled signup validation error');
+        app.logger.warn(
+          {
+            endpoint,
+            statusCode,
+            originalMessage: body.message || body.error,
+          },
+          "Unhandled signup validation error",
+        );
 
         return JSON.stringify({
-          error: 'VALIDATION_ERROR',
-          message: body.message || body.error || 'Invalid signup data',
+          error: "VALIDATION_ERROR",
+          message: body.message || body.error || "Invalid signup data",
           statusCode: 422,
         });
       }
     }
 
     // Email verification errors
-    if (endpoint === 'verify-email' && method === 'GET') {
+    if (endpoint === "verify-email" && method === "GET") {
       if (statusCode === 400 || statusCode === 404) {
         // If there's a callback URL, redirect to it with error parameter
         const url = new URL(request.url, `http://${request.headers.host}`);
-        const callbackURL = url.searchParams.get('callbackURL') || url.searchParams.get('callback_url');
+        const callbackURL =
+          url.searchParams.get("callbackURL") ||
+          url.searchParams.get("callback_url");
 
         if (callbackURL) {
           try {
             const decodedCallback = decodeURIComponent(callbackURL);
             const redirectUrl = new URL(decodedCallback);
-            redirectUrl.searchParams.set('error', 'verification_failed');
-            redirectUrl.searchParams.set('message', 'The verification link is invalid or has expired');
+            redirectUrl.searchParams.set("error", "verification_failed");
+            redirectUrl.searchParams.set(
+              "message",
+              "The verification link is invalid or has expired",
+            );
 
-            app.logger.info({ redirectUrl: redirectUrl.toString() }, 'Redirecting to frontend with verification error');
-            reply.header('Location', redirectUrl.toString());
+            app.logger.info(
+              { redirectUrl: redirectUrl.toString() },
+              "Redirecting to frontend with verification error",
+            );
+            reply.header("Location", redirectUrl.toString());
             reply.status(302);
-            return '';
+            return "";
           } catch (error) {
-            app.logger.error({ err: error, callbackURL }, 'Invalid callback URL in error redirect');
+            app.logger.error(
+              { err: error, callbackURL },
+              "Invalid callback URL in error redirect",
+            );
           }
         }
 
         // If no callback URL, redirect to frontend with error
-        const frontendUrl = process.env.FRONTEND_URL || 'childcosts://auth-callback';
-        const redirectUrl = `${frontendUrl}${frontendUrl.includes('?') ? '&' : '?'}error=verification_failed&message=${encodeURIComponent('The verification link is invalid or has expired')}`;
+        const frontendUrl =
+          process.env.FRONTEND_URL || "childcosts://auth-callback";
+        const redirectUrl = `${frontendUrl}${frontendUrl.includes("?") ? "&" : "?"}error=verification_failed&message=${encodeURIComponent("The verification link is invalid or has expired")}`;
 
-        app.logger.info({ redirectUrl }, 'Redirecting to frontend with verification error');
-        reply.header('Location', redirectUrl);
+        app.logger.info(
+          { redirectUrl },
+          "Redirecting to frontend with verification error",
+        );
+        reply.header("Location", redirectUrl);
         reply.status(302);
-        return '';
+        return "";
       }
     }
 
     // Password reset errors
-    if (endpoint === 'reset-password' && method === 'POST') {
+    if (endpoint === "reset-password" && method === "POST") {
       if (statusCode === 400 || statusCode === 404) {
         return JSON.stringify({
-          error: 'INVALID_RESET_LINK',
-          message: 'The password reset link is invalid or has expired',
+          error: "INVALID_RESET_LINK",
+          message: "The password reset link is invalid or has expired",
           statusCode: statusCode,
         });
       }
     }
 
     // OAuth errors
-    if (endpoint === 'sign-in/social' && method === 'POST') {
+    if (endpoint === "sign-in/social" && method === "POST") {
       if (statusCode === 400 || statusCode === 401) {
         return JSON.stringify({
-          error: 'OAUTH_ERROR',
-          message: body.message || 'Social sign-in failed. Please try again.',
+          error: "OAUTH_ERROR",
+          message: body.message || "Social sign-in failed. Please try again.",
           statusCode: statusCode,
         });
       }
@@ -740,8 +813,8 @@ app.fastify.addHook('onSend', async (request, reply, payload) => {
 
     // Return enhanced generic error
     return JSON.stringify({
-      error: body.error || 'AUTH_ERROR',
-      message: body.message || 'An authentication error occurred',
+      error: body.error || "AUTH_ERROR",
+      message: body.message || "An authentication error occurred",
       statusCode: statusCode,
     });
   } catch (e) {
@@ -752,38 +825,47 @@ app.fastify.addHook('onSend', async (request, reply, payload) => {
 
 // Add custom error handler for Better Auth to provide detailed error responses
 app.fastify.setErrorHandler(async (error: any, request, reply) => {
-  app.logger.error({
-    err: error,
-    method: request.method,
-    url: request.url,
-    statusCode: error?.statusCode || 500,
-    message: error?.message
-  }, 'Request error in error handler');
+  app.logger.error(
+    {
+      err: error,
+      method: request.method,
+      url: request.url,
+      statusCode: error?.statusCode || 500,
+      message: error?.message,
+    },
+    "Request error in error handler",
+  );
 
   // Check if this is an auth-related error
-  const isAuthEndpoint = request.url.startsWith('/api/auth/');
+  const isAuthEndpoint = request.url.startsWith("/api/auth/");
 
   if (isAuthEndpoint) {
     const statusCode = error?.statusCode || 500;
-    const msg = (error?.message || '').toLowerCase();
+    const msg = (error?.message || "").toLowerCase();
 
     // Better Auth specific error handling
     if (statusCode === 401) {
       // Handle various authentication failures with specific messages
-      const errorMessage = error?.message || '';
+      const errorMessage = error?.message || "";
 
       // Email not verified
-      if (errorMessage.includes('email') && errorMessage.includes('verif')) {
+      if (errorMessage.includes("email") && errorMessage.includes("verif")) {
         // Try to resend verification email in error handler as well
         try {
           const emailKey = (reply as any)._signInEmailKey;
           const email = emailKey ? signInEmailStore.get(emailKey) : undefined;
 
           if (email) {
-            app.logger.info({ email }, 'Resending verification email for unverified user attempting sign-in (error handler)');
+            app.logger.info(
+              { email },
+              "Resending verification email for unverified user attempting sign-in (error handler)",
+            );
 
             // Find the user by email
-            const users = await app.db.select().from(authSchema.user).where(eq(authSchema.user.email, email));
+            const users = await app.db
+              .select()
+              .from(authSchema.user)
+              .where(eq(authSchema.user.email, email));
 
             if (users.length > 0) {
               const foundUser = users[0];
@@ -791,15 +873,15 @@ app.fastify.setErrorHandler(async (error: any, request, reply) => {
               if (!foundUser.emailVerified) {
                 // Send verification email using Resend
                 const verificationEmailResult = await resend.emails.send({
-                  from: 'Child Expense Tracker <noreply@example.com>',
+                  from: "Child Expense Tracker <noreply@example.com>",
                   to: email,
-                  subject: 'Verify your email address',
+                  subject: "Verify your email address",
                   html: `
                     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
                       <h2>Verify Your Email Address</h2>
                       <p>We noticed you tried to sign in to Child Expense Tracker. Your email address needs to be verified before you can access your account.</p>
                       <p style="margin: 30px 0;">
-                        <a href="${process.env.FRONTEND_URL || 'childcosts://auth-callback'}?action=verify-email" style="background-color: #3B82F6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
+                        <a href="${process.env.FRONTEND_URL || "childcosts://auth-callback"}?action=verify-email" style="background-color: #3B82F6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; display: inline-block;">
                           Verify Email Address
                         </a>
                       </p>
@@ -814,9 +896,19 @@ app.fastify.setErrorHandler(async (error: any, request, reply) => {
                 });
 
                 if (verificationEmailResult.error) {
-                  app.logger.warn({ err: verificationEmailResult.error, email }, 'Failed to resend verification email on sign-in attempt (error handler)');
+                  app.logger.warn(
+                    { err: verificationEmailResult.error, email },
+                    "Failed to resend verification email on sign-in attempt (error handler)",
+                  );
                 } else {
-                  app.logger.info({ emailId: verificationEmailResult.data?.id, email, userId: foundUser.id }, 'Verification email resent successfully for unverified sign-in attempt (error handler)');
+                  app.logger.info(
+                    {
+                      emailId: verificationEmailResult.data?.id,
+                      email,
+                      userId: foundUser.id,
+                    },
+                    "Verification email resent successfully for unverified sign-in attempt (error handler)",
+                  );
                 }
               }
             }
@@ -827,39 +919,47 @@ app.fastify.setErrorHandler(async (error: any, request, reply) => {
             }
           }
         } catch (error) {
-          app.logger.warn({ err: error }, 'Error attempting to resend verification email on sign-in (error handler)');
+          app.logger.warn(
+            { err: error },
+            "Error attempting to resend verification email on sign-in (error handler)",
+          );
         }
 
         return reply.status(401).send({
-          error: 'EMAIL_NOT_VERIFIED',
-          message: 'Email not verified. A verification email has been sent to your inbox. Please verify your email to continue.',
+          error: "EMAIL_NOT_VERIFIED",
+          message:
+            "Email not verified. A verification email has been sent to your inbox. Please verify your email to continue.",
           statusCode: 401,
           needsVerification: true,
         });
       }
 
       // Invalid credentials (wrong password or user not found)
-      if (errorMessage.includes('Invalid') || errorMessage.includes('credentials') ||
-          errorMessage.includes('password') || errorMessage.includes('not found')) {
+      if (
+        errorMessage.includes("Invalid") ||
+        errorMessage.includes("credentials") ||
+        errorMessage.includes("password") ||
+        errorMessage.includes("not found")
+      ) {
         return reply.status(401).send({
-          error: 'INVALID_CREDENTIALS',
-          message: 'Invalid email or password',
+          error: "INVALID_CREDENTIALS",
+          message: "Invalid email or password",
           statusCode: 401,
         });
       }
 
       // Generic unauthorized
       return reply.status(401).send({
-        error: 'UNAUTHORIZED',
-        message: error?.message || 'Authentication required',
+        error: "UNAUTHORIZED",
+        message: error?.message || "Authentication required",
         statusCode: 401,
       });
     }
 
     if (statusCode === 403) {
       return reply.status(403).send({
-        error: 'FORBIDDEN',
-        message: error?.message || 'Access forbidden',
+        error: "FORBIDDEN",
+        message: error?.message || "Access forbidden",
         statusCode: 403,
       });
     }
@@ -867,89 +967,115 @@ app.fastify.setErrorHandler(async (error: any, request, reply) => {
     // Handle all validation errors (400, 422)
     if (statusCode === 400 || statusCode === 422) {
       // Email already exists
-      if (msg.includes('already') || msg.includes('exists') || msg.includes('duplicate') ||
-          msg.includes('unique') || msg.includes('constraint')) {
+      if (
+        msg.includes("already") ||
+        msg.includes("exists") ||
+        msg.includes("duplicate") ||
+        msg.includes("unique") ||
+        msg.includes("constraint")
+      ) {
         return reply.status(422).send({
-          error: 'EMAIL_EXISTS',
-          message: 'An account with this email already exists',
+          error: "EMAIL_EXISTS",
+          message: "An account with this email already exists",
           statusCode: 422,
         });
       }
 
       // Email is required or missing
-      if (msg.includes('email') && (msg.includes('required') || msg.includes('missing'))) {
+      if (
+        msg.includes("email") &&
+        (msg.includes("required") || msg.includes("missing"))
+      ) {
         return reply.status(422).send({
-          error: 'INVALID_EMAIL',
-          message: 'Email is required',
+          error: "INVALID_EMAIL",
+          message: "Email is required",
           statusCode: 422,
         });
       }
 
       // Invalid email format
-      if (msg.includes('email') && (msg.includes('invalid') || msg.includes('format') || msg.includes('valid'))) {
+      if (
+        msg.includes("email") &&
+        (msg.includes("invalid") ||
+          msg.includes("format") ||
+          msg.includes("valid"))
+      ) {
         return reply.status(422).send({
-          error: 'INVALID_EMAIL',
-          message: 'Please enter a valid email address',
+          error: "INVALID_EMAIL",
+          message: "Please enter a valid email address",
           statusCode: 422,
         });
       }
 
       // Password is required or missing
-      if (msg.includes('password') && (msg.includes('required') || msg.includes('missing'))) {
+      if (
+        msg.includes("password") &&
+        (msg.includes("required") || msg.includes("missing"))
+      ) {
         return reply.status(422).send({
-          error: 'PASSWORD_TOO_SHORT',
-          message: 'Password is required',
+          error: "PASSWORD_TOO_SHORT",
+          message: "Password is required",
           statusCode: 422,
         });
       }
 
       // Password too short
-      if (msg.includes('password') && (msg.includes('short') || msg.includes('length') || msg.includes('8') ||
-          msg.includes('minimum') || msg.includes('min') || msg.includes('least'))) {
+      if (
+        msg.includes("password") &&
+        (msg.includes("short") ||
+          msg.includes("length") ||
+          msg.includes("8") ||
+          msg.includes("minimum") ||
+          msg.includes("min") ||
+          msg.includes("least"))
+      ) {
         return reply.status(422).send({
-          error: 'PASSWORD_TOO_SHORT',
-          message: 'Password must be at least 8 characters long',
+          error: "PASSWORD_TOO_SHORT",
+          message: "Password must be at least 8 characters long",
           statusCode: 422,
         });
       }
 
       // Generic email error
-      if (msg.includes('email')) {
+      if (msg.includes("email")) {
         return reply.status(422).send({
-          error: 'INVALID_EMAIL',
-          message: 'Please enter a valid email address',
+          error: "INVALID_EMAIL",
+          message: "Please enter a valid email address",
           statusCode: 422,
         });
       }
 
       // Generic password error
-      if (msg.includes('password')) {
+      if (msg.includes("password")) {
         return reply.status(422).send({
-          error: 'PASSWORD_TOO_SHORT',
-          message: 'Password must be at least 8 characters long',
+          error: "PASSWORD_TOO_SHORT",
+          message: "Password must be at least 8 characters long",
           statusCode: 422,
         });
       }
 
       // Log unhandled validation errors
-      app.logger.warn({
-        url: request.url,
-        statusCode,
-        originalMessage: error?.message,
-      }, 'Unhandled validation error in error handler');
+      app.logger.warn(
+        {
+          url: request.url,
+          statusCode,
+          originalMessage: error?.message,
+        },
+        "Unhandled validation error in error handler",
+      );
 
       // Generic validation error
       return reply.status(422).send({
-        error: 'VALIDATION_ERROR',
-        message: error?.message || 'Invalid request data',
+        error: "VALIDATION_ERROR",
+        message: error?.message || "Invalid request data",
         statusCode: 422,
       });
     }
 
     // Other auth errors
     return reply.status(statusCode).send({
-      error: 'AUTH_ERROR',
-      message: error?.message || 'Authentication error',
+      error: "AUTH_ERROR",
+      message: error?.message || "Authentication error",
       statusCode,
     });
   }
@@ -957,8 +1083,8 @@ app.fastify.setErrorHandler(async (error: any, request, reply) => {
   // Non-auth errors - use default error response
   const statusCode = error?.statusCode || 500;
   return reply.status(statusCode).send({
-    error: error?.name || 'ERROR',
-    message: error?.message || 'An error occurred',
+    error: error?.name || "ERROR",
+    message: error?.message || "An error occurred",
     statusCode,
   });
 });
@@ -972,4 +1098,4 @@ registerExpensesRoutes(app);
 registerSettlementsRoutes(app);
 
 await app.run();
-app.logger.info('Application running with email verification enabled');
+app.logger.info("Application running with email verification enabled");

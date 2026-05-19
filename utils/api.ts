@@ -3,7 +3,7 @@
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 import * as SecureStore from "expo-secure-store";
-import { BEARER_TOKEN_KEY } from "@/lib/auth";
+import { BEARER_TOKEN_KEY, authClient } from "@/lib/auth";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 /**
@@ -42,15 +42,15 @@ export const getBearerToken = async (): Promise<string | null> => {
 /**
  * Get all historical user IDs from AsyncStorage
  * These are used for ownership checks when a user's ID has changed
- * 
+ *
  * @returns Array of historical user IDs
  */
 export const getHistoricalUserIds = async (): Promise<string[]> => {
   try {
-    const storedIds = await AsyncStorage.getItem('@childcosts_all_user_ids');
+    const storedIds = await AsyncStorage.getItem("@childcosts_all_user_ids");
     if (storedIds) {
       const parsed = JSON.parse(storedIds);
-      console.log('[API] Retrieved historical user IDs:', parsed);
+      console.log("[API] Retrieved historical user IDs:", parsed);
       return Array.isArray(parsed) ? parsed : [];
     }
     return [];
@@ -70,7 +70,7 @@ export const getHistoricalUserIds = async (): Promise<string[]> => {
  */
 export const apiCall = async <T = any>(
   endpoint: string,
-  options?: RequestInit
+  options?: RequestInit,
 ): Promise<T> => {
   if (!isBackendConfigured()) {
     throw new Error("Backend URL not configured. Please rebuild the app.");
@@ -82,6 +82,7 @@ export const apiCall = async <T = any>(
   try {
     const fetchOptions: RequestInit = {
       ...options,
+      credentials: Platform.OS === "web" ? "include" : options?.credentials,
       headers: {
         ...options?.headers,
       },
@@ -94,7 +95,24 @@ export const apiCall = async <T = any>(
       };
     }
 
-    // Add bearer token if available
+    // Add the Better Auth session cookie when the Expo client has one.
+    // Better Auth primarily authenticates API calls through the session cookie;
+    // the Bearer token remains as a compatibility fallback for older backend code.
+    try {
+      const cookieHeader = await Promise.resolve(
+        (authClient as any).getCookie?.(),
+      );
+      if (typeof cookieHeader === "string" && cookieHeader.length > 0) {
+        fetchOptions.headers = {
+          ...fetchOptions.headers,
+          Cookie: cookieHeader,
+        };
+      }
+    } catch (error) {
+      console.warn("[API] Could not read Better Auth cookie:", error);
+    }
+
+    // Add bearer token if available as a fallback.
     const token = await getBearerToken();
     if (token) {
       fetchOptions.headers = {
@@ -109,9 +127,12 @@ export const apiCall = async <T = any>(
     if (historicalUserIds.length > 0) {
       fetchOptions.headers = {
         ...fetchOptions.headers,
-        'X-Historical-User-IDs': historicalUserIds.join(','),
+        "X-Historical-User-IDs": historicalUserIds.join(","),
       };
-      console.log('[API] Added historical user IDs header:', historicalUserIds.join(','));
+      console.log(
+        "[API] Added historical user IDs header:",
+        historicalUserIds.join(","),
+      );
     }
 
     console.log("[API] Fetch options:", fetchOptions);
@@ -121,7 +142,7 @@ export const apiCall = async <T = any>(
     if (!response.ok) {
       const text = await response.text();
       console.error("[API] Error response:", response.status, text);
-      
+
       // Try to parse error response as JSON to get structured error message
       // Backend returns: { error: string, message: string, statusCode: number }
       try {
@@ -139,7 +160,7 @@ export const apiCall = async <T = any>(
     return data;
   } catch (error) {
     // Enhanced error logging with more details
-    if (error instanceof TypeError && error.message.includes('fetch')) {
+    if (error instanceof TypeError && error.message.includes("fetch")) {
       // Network error - can't reach the server
       console.error("[API] Network error - cannot reach backend:", url);
       console.error("[API] This could be due to:");
@@ -147,13 +168,15 @@ export const apiCall = async <T = any>(
       console.error("  2. CORS is blocking the request");
       console.error("  3. Network connectivity issues");
       console.error("  4. Invalid backend URL");
-      throw new Error("Cannot connect to server. Please check your internet connection.");
+      throw new Error(
+        "Cannot connect to server. Please check your internet connection.",
+      );
     }
-    
+
     console.error("[API] Request failed:", error);
     console.error("[API] Error details:", {
       message: error instanceof Error ? error.message : String(error),
-      name: error instanceof Error ? error.name : 'Unknown',
+      name: error instanceof Error ? error.name : "Unknown",
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
@@ -172,7 +195,7 @@ export const apiGet = async <T = any>(endpoint: string): Promise<T> => {
  */
 export const apiPost = async <T = any>(
   endpoint: string,
-  data: any
+  data: any,
 ): Promise<T> => {
   return apiCall<T>(endpoint, {
     method: "POST",
@@ -185,7 +208,7 @@ export const apiPost = async <T = any>(
  */
 export const apiPut = async <T = any>(
   endpoint: string,
-  data: any
+  data: any,
 ): Promise<T> => {
   return apiCall<T>(endpoint, {
     method: "PUT",
@@ -198,7 +221,7 @@ export const apiPut = async <T = any>(
  */
 export const apiPatch = async <T = any>(
   endpoint: string,
-  data: any
+  data: any,
 ): Promise<T> => {
   return apiCall<T>(endpoint, {
     method: "PATCH",
@@ -226,7 +249,7 @@ export const apiDelete = async <T = any>(endpoint: string): Promise<T> => {
  */
 export const authenticatedApiCall = async <T = any>(
   endpoint: string,
-  options?: RequestInit
+  options?: RequestInit,
 ): Promise<T> => {
   const token = await getBearerToken();
 
@@ -246,7 +269,9 @@ export const authenticatedApiCall = async <T = any>(
 /**
  * Authenticated GET request
  */
-export const authenticatedGet = async <T = any>(endpoint: string): Promise<T> => {
+export const authenticatedGet = async <T = any>(
+  endpoint: string,
+): Promise<T> => {
   return authenticatedApiCall<T>(endpoint, { method: "GET" });
 };
 
@@ -255,7 +280,7 @@ export const authenticatedGet = async <T = any>(endpoint: string): Promise<T> =>
  */
 export const authenticatedPost = async <T = any>(
   endpoint: string,
-  data: any
+  data: any,
 ): Promise<T> => {
   return authenticatedApiCall<T>(endpoint, {
     method: "POST",
@@ -268,7 +293,7 @@ export const authenticatedPost = async <T = any>(
  */
 export const authenticatedPut = async <T = any>(
   endpoint: string,
-  data: any
+  data: any,
 ): Promise<T> => {
   return authenticatedApiCall<T>(endpoint, {
     method: "PUT",
@@ -281,7 +306,7 @@ export const authenticatedPut = async <T = any>(
  */
 export const authenticatedPatch = async <T = any>(
   endpoint: string,
-  data: any
+  data: any,
 ): Promise<T> => {
   return authenticatedApiCall<T>(endpoint, {
     method: "PATCH",
@@ -292,7 +317,9 @@ export const authenticatedPatch = async <T = any>(
 /**
  * Authenticated DELETE request
  */
-export const authenticatedDelete = async <T = any>(endpoint: string): Promise<T> => {
+export const authenticatedDelete = async <T = any>(
+  endpoint: string,
+): Promise<T> => {
   return authenticatedApiCall<T>(endpoint, {
     method: "DELETE",
   });
@@ -347,11 +374,13 @@ export interface Settlement {
 
 export interface BalanceResponse {
   participants: ParticipantWithBalance[];
-  whoOwesWhom: {
-    from: string;
-    to: string;
-    amount: number;
-  }[] | null;
+  whoOwesWhom:
+    | {
+        from: string;
+        to: string;
+        amount: number;
+      }[]
+    | null;
 }
 
 export interface WhoOwesWhomItem {
@@ -374,29 +403,37 @@ export const authApi = {
    * Required for Apple Guideline 5.1.1(v) and Google Play account-deletion policy.
    */
   deleteAccount: async (): Promise<{ success: boolean }> => {
-    return authenticatedApiCall<{ success: boolean }>('/api/auth/account', { method: 'DELETE' });
+    return authenticatedApiCall<{ success: boolean }>("/api/auth/account", {
+      method: "DELETE",
+    });
   },
 };
 
 export const projectsApi = {
-  getAll: async (): Promise<Project[]> => apiGet<Project[]>('/api/projects'),
+  getAll: async (): Promise<Project[]> => apiGet<Project[]>("/api/projects"),
   create: async (name: string, createdBy?: string | null): Promise<Project> =>
-    apiPost<Project>('/api/projects', { name, createdBy: createdBy ?? null }),
+    apiPost<Project>("/api/projects", { name, createdBy: createdBy ?? null }),
   rename: async (id: string, name: string): Promise<Project> =>
     apiPut<Project>(`/api/projects/${id}`, { name }),
-  delete: async (id: string): Promise<void> => apiDelete<void>(`/api/projects/${id}`),
+  delete: async (id: string): Promise<void> =>
+    apiDelete<void>(`/api/projects/${id}`),
 };
 
 export const expensesApi = {
   /**
    * Get expenses for a project
    */
-  getAll: async (projectId: string, filters?: { search?: string; minAmount?: number; maxAmount?: number }): Promise<Expense[]> => {
+  getAll: async (
+    projectId: string,
+    filters?: { search?: string; minAmount?: number; maxAmount?: number },
+  ): Promise<Expense[]> => {
     const params = new URLSearchParams();
-    params.append('projectId', projectId);
-    if (filters?.search) params.append('search', filters.search);
-    if (filters?.minAmount !== undefined) params.append('minAmount', filters.minAmount.toString());
-    if (filters?.maxAmount !== undefined) params.append('maxAmount', filters.maxAmount.toString());
+    params.append("projectId", projectId);
+    if (filters?.search) params.append("search", filters.search);
+    if (filters?.minAmount !== undefined)
+      params.append("minAmount", filters.minAmount.toString());
+    if (filters?.maxAmount !== undefined)
+      params.append("maxAmount", filters.maxAmount.toString());
     return apiGet<Expense[]>(`/api/expenses?${params.toString()}`);
   },
 
@@ -409,15 +446,24 @@ export const expensesApi = {
     createdBy: string | null;
     projectId: string;
   }): Promise<Expense> => {
-    return apiPost<Expense>('/api/expenses', expense);
+    return apiPost<Expense>("/api/expenses", expense);
   },
 
   /**
    * Update an existing expense
    * Backend will automatically verify ownership via auth session + historical user IDs header
    */
-  update: async (expenseId: string, expense: { description?: string; amount?: number; date?: string; paidBy?: string; splitPercentage?: number }): Promise<Expense> => {
-    console.log('[API] Updating expense:', expenseId, 'with data:', expense);
+  update: async (
+    expenseId: string,
+    expense: {
+      description?: string;
+      amount?: number;
+      date?: string;
+      paidBy?: string;
+      splitPercentage?: number;
+    },
+  ): Promise<Expense> => {
+    console.log("[API] Updating expense:", expenseId, "with data:", expense);
     return apiPut<Expense>(`/api/expenses/${expenseId}`, expense);
   },
 
@@ -428,39 +474,47 @@ export const expensesApi = {
    * @param expenseId - ID of the expense to delete
    */
   delete: async (expenseId: string): Promise<void> => {
-    console.log('[API] Deleting expense:', expenseId);
+    console.log("[API] Deleting expense:", expenseId);
     return apiDelete<void>(`/api/expenses/${expenseId}`);
   },
 
   /**
    * Delete all expenses for a project
    */
-  deleteAll: async (projectId: string): Promise<{ success: boolean; deletedCount: number }> => {
-    return apiDelete<{ success: boolean; deletedCount: number }>(`/api/expenses/all?projectId=${projectId}`);
+  deleteAll: async (
+    projectId: string,
+  ): Promise<{ success: boolean; deletedCount: number }> => {
+    return apiDelete<{ success: boolean; deletedCount: number }>(
+      `/api/expenses/all?projectId=${projectId}`,
+    );
   },
 
   /**
    * Export expenses (project-scoped) to CSV or Excel
    */
-  export: async (projectId: string, format: 'csv' | 'xlsx' = 'csv', ids?: string): Promise<Blob> => {
+  export: async (
+    projectId: string,
+    format: "csv" | "xlsx" = "csv",
+    ids?: string,
+  ): Promise<Blob> => {
     if (!isBackendConfigured()) {
       throw new Error("Backend URL not configured. Please rebuild the app.");
     }
 
     const params = new URLSearchParams();
-    params.append('projectId', projectId);
-    params.append('format', format);
+    params.append("projectId", projectId);
+    params.append("format", format);
     if (ids) {
-      params.append('ids', ids);
+      params.append("ids", ids);
     }
 
     const url = `${BACKEND_URL}/api/expenses/export?${params.toString()}`;
     const token = await getBearerToken();
-    
-    console.log('[Export] Requesting export:', url);
-    
+
+    console.log("[Export] Requesting export:", url);
+
     const response = await fetch(url, {
-      method: 'GET',
+      method: "GET",
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
 
@@ -475,52 +529,66 @@ export const expensesApi = {
   /**
    * Import expenses from CSV or Excel into a project
    */
-  import: async (projectId: string, file: { uri: string; name: string; type: string }): Promise<{ imported: number; errors: string[] }> => {
+  import: async (
+    projectId: string,
+    file: { uri: string; name: string; type: string },
+  ): Promise<{ imported: number; errors: string[] }> => {
     if (!isBackendConfigured()) {
       throw new Error("Backend URL not configured. Please rebuild the app.");
     }
 
-    console.log('[Import] Preparing file upload:', file.name, file.type, 'project:', projectId);
+    console.log(
+      "[Import] Preparing file upload:",
+      file.name,
+      file.type,
+      "project:",
+      projectId,
+    );
 
     const formData = new FormData();
-    
-    if (Platform.OS === 'web') {
+
+    if (Platform.OS === "web") {
       const response = await fetch(file.uri);
       const blob = await response.blob();
       const webFile = new File([blob], file.name, { type: file.type });
-      formData.append('file', webFile);
-      console.log('[Import] Web file prepared:', webFile.name, webFile.size, 'bytes');
+      formData.append("file", webFile);
+      console.log(
+        "[Import] Web file prepared:",
+        webFile.name,
+        webFile.size,
+        "bytes",
+      );
     } else {
-      formData.append('file', {
+      formData.append("file", {
         uri: file.uri,
         name: file.name,
         type: file.type,
       } as any);
-      console.log('[Import] Native file prepared:', file.name);
+      console.log("[Import] Native file prepared:", file.name);
     }
 
     const url = `${BACKEND_URL}/api/expenses/import?projectId=${encodeURIComponent(projectId)}`;
     const token = await getBearerToken();
 
-    console.log('[Import] Uploading to:', url);
+    console.log("[Import] Uploading to:", url);
 
     const headers: Record<string, string> = {};
     if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
+      headers["Authorization"] = `Bearer ${token}`;
     }
 
     const response = await fetch(url, {
-      method: 'POST',
+      method: "POST",
       headers,
       body: formData,
     });
 
-    console.log('[Import] Response status:', response.status);
+    console.log("[Import] Response status:", response.status);
 
     if (!response.ok) {
       const text = await response.text();
-      console.error('[Import] Upload failed:', response.status, text);
-      
+      console.error("[Import] Upload failed:", response.status, text);
+
       try {
         const errorData = JSON.parse(text);
         const errorMessage = errorData.error || text;
@@ -531,7 +599,7 @@ export const expensesApi = {
     }
 
     const result = await response.json();
-    console.log('[Import] Upload successful:', result);
+    console.log("[Import] Upload successful:", result);
     return result;
   },
 };
@@ -542,22 +610,32 @@ export const expensesApi = {
  */
 export const participantsApi = {
   getAll: async (projectId: string): Promise<Participant[]> => {
-    return apiGet<Participant[]>(`/api/participants?projectId=${encodeURIComponent(projectId)}`);
+    return apiGet<Participant[]>(
+      `/api/participants?projectId=${encodeURIComponent(projectId)}`,
+    );
   },
 
-  create: async (projectId: string, name: string, createdByUserId?: string | null): Promise<Participant> => {
-    const body: { name: string; projectId: string; createdBy?: string | null } = { name, projectId };
+  create: async (
+    projectId: string,
+    name: string,
+    createdByUserId?: string | null,
+  ): Promise<Participant> => {
+    const body: { name: string; projectId: string; createdBy?: string | null } =
+      { name, projectId };
     if (createdByUserId !== undefined) {
       body.createdBy = createdByUserId;
     }
-    return apiPost<Participant>('/api/participants', body);
+    return apiPost<Participant>("/api/participants", body);
   },
 
   update: async (participantId: string, name: string): Promise<Participant> => {
     return apiPut<Participant>(`/api/participants/${participantId}`, { name });
   },
 
-  delete: async (participantId: string, createdByUserId?: string): Promise<void> => {
+  delete: async (
+    participantId: string,
+    createdByUserId?: string,
+  ): Promise<void> => {
     const endpoint = createdByUserId
       ? `/api/participants/${participantId}?createdBy=${createdByUserId}`
       : `/api/participants/${participantId}`;
@@ -565,7 +643,9 @@ export const participantsApi = {
   },
 
   getBalance: async (projectId: string): Promise<BalanceResponse> => {
-    return apiGet<BalanceResponse>(`/api/participants/balance?projectId=${encodeURIComponent(projectId)}`);
+    return apiGet<BalanceResponse>(
+      `/api/participants/balance?projectId=${encodeURIComponent(projectId)}`,
+    );
   },
 };
 
@@ -575,7 +655,9 @@ export const participantsApi = {
  */
 export const settlementsApi = {
   getAll: async (projectId: string): Promise<Settlement[]> => {
-    return apiGet<Settlement[]>(`/api/settlements?projectId=${encodeURIComponent(projectId)}`);
+    return apiGet<Settlement[]>(
+      `/api/settlements?projectId=${encodeURIComponent(projectId)}`,
+    );
   },
 
   create: async (settlement: {
@@ -586,7 +668,7 @@ export const settlementsApi = {
     description: string;
     projectId: string;
   }): Promise<Settlement> => {
-    return apiPost<Settlement>('/api/settlements', settlement);
+    return apiPost<Settlement>("/api/settlements", settlement);
   },
 
   delete: async (settlementId: string): Promise<void> => {

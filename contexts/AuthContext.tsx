@@ -1,83 +1,23 @@
 // Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  ReactNode,
+} from "react";
 import { Platform } from "react-native";
 import * as Linking from "expo-linking";
-import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authClient, setBearerToken, clearAuthTokens } from "@/lib/auth";
 import { BACKEND_URL } from "@/utils/api";
 
-// The @better-auth/expo client stores its session under SecureStore
-// (or localStorage on web) at `${storagePrefix}_cookie` as a JSON map
-// of { [cookieName]: { value, expires } }. We use storagePrefix
-// "childcosts" in lib/auth.ts, so the key is "childcosts_cookie".
-//
-// IMPORTANT: when Better Auth sets the cookie over HTTPS it uses the
-// `__Secure-` prefix to prevent the cookie from ever being sent over
-// plain HTTP (browser/RFC enforced). Our production backend is always
-// HTTPS, so the actual cookie name is `__Secure-better-auth.session_token`.
-// Storing it under the plain name caused the client to send a cookie
-// the server didn't recognize, and Better Auth treated each
-// /api/auth/get-session call as anonymous (returning null).
-const EXPO_AUTH_COOKIE_KEY = "childcosts_cookie";
-const DEFAULT_BETTER_AUTH_COOKIE_NAME = "__Secure-better-auth.session_token";
+const SOCIAL_SIGN_IN_SESSION_POLL_ATTEMPTS = 10;
+const SOCIAL_SIGN_IN_SESSION_POLL_DELAY_MS = 500;
 
-async function storeBetterAuthSessionToken(token: string, cookieName?: string | null) {
-  const name = cookieName || DEFAULT_BETTER_AUTH_COOKIE_NAME;
-  const payload = JSON.stringify({
-    [name]: { value: token, expires: null },
-  });
-  if (Platform.OS === "web") {
-    try { localStorage.setItem(EXPO_AUTH_COOKIE_KEY, payload); } catch {}
-  } else {
-    await SecureStore.setItemAsync(EXPO_AUTH_COOKIE_KEY, payload);
-  }
-}
-
-/**
- * Parse the Set-Cookie header value(s) that the @better-auth/expo
- * server plugin attaches to the deep link as ?cookie=... and turn them
- * into the JSON map shape that the @better-auth/expo client persists.
- */
-function setCookieHeaderToExpoStore(setCookieHeader: string): string {
-  const map: Record<string, { value: string; expires: string | null }> = {};
-  // Set-Cookie headers may be joined by ", " when concatenated. Split
-  // carefully because cookie values can contain commas inside quoted
-  // strings, but Better Auth doesn't emit those, so a simple split is
-  // sufficient here.
-  const entries = setCookieHeader.split(/, (?=[^;]+?=)/);
-  for (const entry of entries) {
-    const [pair, ...attrs] = entry.split(";").map((p) => p.trim());
-    const idx = pair.indexOf("=");
-    if (idx < 0) continue;
-    const name = pair.slice(0, idx);
-    const value = pair.slice(idx + 1);
-    let expires: string | null = null;
-    for (const attr of attrs) {
-      const eq = attr.indexOf("=");
-      if (eq < 0) continue;
-      const k = attr.slice(0, eq).toLowerCase();
-      const v = attr.slice(eq + 1);
-      if (k === "max-age") {
-        const sec = Number(v);
-        if (!Number.isNaN(sec)) expires = new Date(Date.now() + sec * 1000).toISOString();
-      } else if (k === "expires" && !expires) {
-        const d = new Date(v);
-        if (!Number.isNaN(d.getTime())) expires = d.toISOString();
-      }
-    }
-    map[name] = { value, expires };
-  }
-  return JSON.stringify(map);
-}
-
-async function writeExpoCookieStore(payload: string) {
-  if (Platform.OS === "web") {
-    try { localStorage.setItem(EXPO_AUTH_COOKIE_KEY, payload); } catch {}
-  } else {
-    await SecureStore.setItemAsync(EXPO_AUTH_COOKIE_KEY, payload);
-  }
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 const LOCAL_USER_ID_KEY = "@childcosts_local_user_id";
@@ -96,7 +36,11 @@ interface AuthContextType {
   allUserIds: string[];
   loading: boolean;
   signInWithEmail: (email: string, password: string) => Promise<void>;
-  signUpWithEmail: (email: string, password: string, name?: string) => Promise<void>;
+  signUpWithEmail: (
+    email: string,
+    password: string,
+    name?: string,
+  ) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
   signInWithApple: () => Promise<void>;
   signInWithGitHub: () => Promise<void>;
@@ -106,54 +50,11 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-function openOAuthPopup(provider: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const popupUrl = `${window.location.origin}/auth-popup?provider=${provider}`;
-    const width = 500;
-    const height = 600;
-    const left = window.screenX + (window.outerWidth - width) / 2;
-    const top = window.screenY + (window.outerHeight - height) / 2;
-
-    const popup = window.open(
-      popupUrl,
-      "oauth-popup",
-      `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
-    );
-
-    if (!popup) {
-      reject(new Error("Failed to open popup. Please allow popups."));
-      return;
-    }
-
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type === "oauth-success" && event.data?.token) {
-        window.removeEventListener("message", handleMessage);
-        clearInterval(checkClosed);
-        resolve(event.data.token);
-      } else if (event.data?.type === "oauth-error") {
-        window.removeEventListener("message", handleMessage);
-        clearInterval(checkClosed);
-        reject(new Error(event.data.error || "OAuth failed"));
-      }
-    };
-
-    window.addEventListener("message", handleMessage);
-
-    const checkClosed = setInterval(() => {
-      if (popup.closed) {
-        clearInterval(checkClosed);
-        window.removeEventListener("message", handleMessage);
-        reject(new Error("Authentication cancelled"));
-      }
-    }, 500);
-  });
-}
-
 // Helper function to parse Better Auth error responses
 // Backend now returns consistent format: { error: string, message: string, statusCode: number }
 function parseAuthError(error: any): { message: string; code: string } {
-  console.log('[Auth] Parsing error:', JSON.stringify(error, null, 2));
-  
+  console.log("[Auth] Parsing error:", JSON.stringify(error, null, 2));
+
   let errorMessage = "Authentication failed";
   let errorCode = "";
 
@@ -164,126 +65,181 @@ function parseAuthError(error: any): { message: string; code: string } {
   // 4. As plain string
   // 5. In error.json or error.data
   // 6. Fetch API error with response text
-  
+
   // Try to extract the actual error data
   let errorData = error;
-  
+
   // If error is wrapped in a json property (Better Auth format)
   if (error?.json) {
     try {
-      errorData = typeof error.json === 'string' 
-        ? JSON.parse(error.json) 
-        : error.json;
-      console.log('[Auth] Extracted from error.json:', errorData);
+      errorData =
+        typeof error.json === "string" ? JSON.parse(error.json) : error.json;
+      console.log("[Auth] Extracted from error.json:", errorData);
     } catch (parseError) {
-      console.error('[Auth] Failed to parse error.json:', parseError);
+      console.error("[Auth] Failed to parse error.json:", parseError);
     }
   }
-  
+
   // If error is wrapped in a response property
   if (error?.response) {
     try {
-      errorData = typeof error.response === 'string' 
-        ? JSON.parse(error.response) 
-        : error.response;
-      console.log('[Auth] Extracted from error.response:', errorData);
+      errorData =
+        typeof error.response === "string"
+          ? JSON.parse(error.response)
+          : error.response;
+      console.log("[Auth] Extracted from error.response:", errorData);
     } catch (parseError) {
-      console.error('[Auth] Failed to parse error.response:', parseError);
+      console.error("[Auth] Failed to parse error.response:", parseError);
     }
   }
-  
+
   // If error has a data property (axios-style)
   if (errorData?.data) {
     errorData = errorData.data;
-    console.log('[Auth] Extracted from error.data:', errorData);
+    console.log("[Auth] Extracted from error.data:", errorData);
   }
-  
+
   // If error has a body property (fetch API)
   if (errorData?.body) {
     try {
-      errorData = typeof errorData.body === 'string' 
-        ? JSON.parse(errorData.body) 
-        : errorData.body;
-      console.log('[Auth] Extracted from error.body:', errorData);
+      errorData =
+        typeof errorData.body === "string"
+          ? JSON.parse(errorData.body)
+          : errorData.body;
+      console.log("[Auth] Extracted from error.body:", errorData);
     } catch (parseError) {
-      console.error('[Auth] Failed to parse error.body:', parseError);
+      console.error("[Auth] Failed to parse error.body:", parseError);
     }
   }
-  
+
   // Now extract error code and message
   // Priority 1: error.error and error.message (backend format - NEW STRUCTURED FORMAT)
-  if (errorData?.error && typeof errorData.error === 'string') {
+  if (errorData?.error && typeof errorData.error === "string") {
     errorCode = String(errorData.error).toUpperCase();
     errorMessage = errorData.message || errorMessage;
-    console.log('[Auth] Format 1 - error.error:', errorCode, 'message:', errorMessage);
+    console.log(
+      "[Auth] Format 1 - error.error:",
+      errorCode,
+      "message:",
+      errorMessage,
+    );
   }
   // Priority 2: error.code and error.message (alternative format)
-  else if (errorData?.code && typeof errorData.code === 'string') {
+  else if (errorData?.code && typeof errorData.code === "string") {
     errorCode = String(errorData.code).toUpperCase();
     errorMessage = errorData.message || errorMessage;
-    console.log('[Auth] Format 2 - error.code:', errorCode, 'message:', errorMessage);
+    console.log(
+      "[Auth] Format 2 - error.code:",
+      errorCode,
+      "message:",
+      errorMessage,
+    );
   }
   // Priority 3: error.message (plain string)
-  else if (errorData?.message && typeof errorData.message === 'string') {
+  else if (errorData?.message && typeof errorData.message === "string") {
     errorMessage = errorData.message;
-    
+
     // Try to extract error code from message content
     const messageLower = errorMessage.toLowerCase();
-    if (messageLower.includes('email') && (messageLower.includes('verif') || messageLower.includes('not verified'))) {
-      errorCode = 'EMAIL_NOT_VERIFIED';
-    } else if (messageLower.includes('invalid') || messageLower.includes('credentials') || messageLower.includes('incorrect')) {
-      errorCode = 'INVALID_CREDENTIALS';
-    } else if (messageLower.includes('already') || messageLower.includes('exists')) {
-      errorCode = 'EMAIL_EXISTS';
-    } else if (messageLower.includes('not found') || messageLower.includes('no user')) {
-      errorCode = 'USER_NOT_FOUND';
-    } else if (messageLower.includes('password') && (messageLower.includes('8') || messageLower.includes('short') || messageLower.includes('characters'))) {
-      errorCode = 'PASSWORD_TOO_SHORT';
-    } else if (messageLower.includes('email') && (messageLower.includes('invalid') || messageLower.includes('valid'))) {
-      errorCode = 'INVALID_EMAIL';
-    } else if (messageLower.includes('email') && messageLower.includes('required')) {
-      errorCode = 'INVALID_EMAIL';
-    } else if (messageLower.includes('password') && messageLower.includes('required')) {
-      errorCode = 'PASSWORD_TOO_SHORT';
-    } else if (messageLower.includes('validation') || messageLower.includes('422')) {
+    if (
+      messageLower.includes("email") &&
+      (messageLower.includes("verif") || messageLower.includes("not verified"))
+    ) {
+      errorCode = "EMAIL_NOT_VERIFIED";
+    } else if (
+      messageLower.includes("invalid") ||
+      messageLower.includes("credentials") ||
+      messageLower.includes("incorrect")
+    ) {
+      errorCode = "INVALID_CREDENTIALS";
+    } else if (
+      messageLower.includes("already") ||
+      messageLower.includes("exists")
+    ) {
+      errorCode = "EMAIL_EXISTS";
+    } else if (
+      messageLower.includes("not found") ||
+      messageLower.includes("no user")
+    ) {
+      errorCode = "USER_NOT_FOUND";
+    } else if (
+      messageLower.includes("password") &&
+      (messageLower.includes("8") ||
+        messageLower.includes("short") ||
+        messageLower.includes("characters"))
+    ) {
+      errorCode = "PASSWORD_TOO_SHORT";
+    } else if (
+      messageLower.includes("email") &&
+      (messageLower.includes("invalid") || messageLower.includes("valid"))
+    ) {
+      errorCode = "INVALID_EMAIL";
+    } else if (
+      messageLower.includes("email") &&
+      messageLower.includes("required")
+    ) {
+      errorCode = "INVALID_EMAIL";
+    } else if (
+      messageLower.includes("password") &&
+      messageLower.includes("required")
+    ) {
+      errorCode = "PASSWORD_TOO_SHORT";
+    } else if (
+      messageLower.includes("validation") ||
+      messageLower.includes("422")
+    ) {
       // Generic validation error - try to infer from context
-      if (messageLower.includes('email')) {
-        errorCode = 'INVALID_EMAIL';
-      } else if (messageLower.includes('password')) {
-        errorCode = 'PASSWORD_TOO_SHORT';
+      if (messageLower.includes("email")) {
+        errorCode = "INVALID_EMAIL";
+      } else if (messageLower.includes("password")) {
+        errorCode = "PASSWORD_TOO_SHORT";
       } else {
-        errorCode = 'BAD_REQUEST';
+        errorCode = "BAD_REQUEST";
       }
     }
-    
-    console.log('[Auth] Format 3 - extracted from message:', errorCode);
+
+    console.log("[Auth] Format 3 - extracted from message:", errorCode);
   }
   // Priority 4: Plain string error
-  else if (typeof errorData === 'string') {
+  else if (typeof errorData === "string") {
     errorMessage = errorData;
-    
+
     // Try to extract error code from string content
     const messageLower = errorMessage.toLowerCase();
-    if (messageLower.includes('email') && messageLower.includes('exists')) {
-      errorCode = 'EMAIL_EXISTS';
-    } else if (messageLower.includes('password') && (messageLower.includes('8') || messageLower.includes('short'))) {
-      errorCode = 'PASSWORD_TOO_SHORT';
-    } else if (messageLower.includes('email') && (messageLower.includes('invalid') || messageLower.includes('required'))) {
-      errorCode = 'INVALID_EMAIL';
+    if (messageLower.includes("email") && messageLower.includes("exists")) {
+      errorCode = "EMAIL_EXISTS";
+    } else if (
+      messageLower.includes("password") &&
+      (messageLower.includes("8") || messageLower.includes("short"))
+    ) {
+      errorCode = "PASSWORD_TOO_SHORT";
+    } else if (
+      messageLower.includes("email") &&
+      (messageLower.includes("invalid") || messageLower.includes("required"))
+    ) {
+      errorCode = "INVALID_EMAIL";
     }
-    
-    console.log('[Auth] Format 4 - plain string:', errorMessage);
+
+    console.log("[Auth] Format 4 - plain string:", errorMessage);
   }
 
   // Normalize error codes to standard format
   // Backend may return USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL, normalize to EMAIL_EXISTS
-  if (errorCode.includes('USER_ALREADY_EXISTS') || errorCode.includes('EMAIL_ALREADY_EXISTS')) {
-    errorCode = 'EMAIL_EXISTS';
-    console.log('[Auth] Normalized error code to EMAIL_EXISTS');
+  if (
+    errorCode.includes("USER_ALREADY_EXISTS") ||
+    errorCode.includes("EMAIL_ALREADY_EXISTS")
+  ) {
+    errorCode = "EMAIL_EXISTS";
+    console.log("[Auth] Normalized error code to EMAIL_EXISTS");
   }
 
-  console.log('[Auth] Final parsed error - Code:', errorCode, 'Message:', errorMessage);
-  
+  console.log(
+    "[Auth] Final parsed error - Code:",
+    errorCode,
+    "Message:",
+    errorMessage,
+  );
+
   return { message: errorMessage, code: errorCode };
 }
 
@@ -305,10 +261,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // POLLING: Refresh session every 5 minutes to keep SecureStore token in sync
     // This prevents 401 errors when the session token rotates
-    const intervalId = setInterval(() => {
-      console.log("Auto-refreshing user session to sync token...");
-      fetchUser();
-    }, 5 * 60 * 1000); // 5 minutes
+    const intervalId = setInterval(
+      () => {
+        console.log("Auto-refreshing user session to sync token...");
+        fetchUser();
+      },
+      5 * 60 * 1000,
+    ); // 5 minutes
 
     return () => {
       subscription.remove();
@@ -320,28 +279,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       // Load local user ID from storage
       const storedUserId = await AsyncStorage.getItem(LOCAL_USER_ID_KEY);
-      console.log('[Auth] Loaded local user ID from storage:', storedUserId);
+      console.log("[Auth] Loaded local user ID from storage:", storedUserId);
       setLocalUserId(storedUserId);
-      
+
       // Load all user IDs from storage
       const storedAllUserIds = await AsyncStorage.getItem(ALL_USER_IDS_KEY);
       if (storedAllUserIds) {
         try {
           const parsedIds = JSON.parse(storedAllUserIds);
           setAllUserIds(parsedIds);
-          console.log('[Auth] Loaded all user IDs from storage:', parsedIds);
+          console.log("[Auth] Loaded all user IDs from storage:", parsedIds);
         } catch (parseError) {
-          console.error('[Auth] Failed to parse all user IDs:', parseError);
+          console.error("[Auth] Failed to parse all user IDs:", parseError);
           setAllUserIds([]);
         }
       } else {
         setAllUserIds([]);
       }
-      
+
       // Try to fetch user session
       await fetchUser();
     } catch (error) {
-      console.error('[Auth] Failed to initialize auth:', error);
+      console.error("[Auth] Failed to initialize auth:", error);
     }
   };
 
@@ -349,23 +308,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setLoading(true);
       const session = await authClient.getSession();
-      console.log('[Auth] Session fetched:', session ? 'Found' : 'Not found');
-      
+      console.log("[Auth] Session fetched:", session ? "Found" : "Not found");
+
       if (session?.data?.user) {
         const userData = session.data.user as User;
         setUser(userData);
-        
+
         // Store user ID locally for offline ownership checks
-        const existingLocalUserId = await AsyncStorage.getItem(LOCAL_USER_ID_KEY);
+        const existingLocalUserId =
+          await AsyncStorage.getItem(LOCAL_USER_ID_KEY);
         if (!existingLocalUserId) {
           await AsyncStorage.setItem(LOCAL_USER_ID_KEY, userData.id);
           setLocalUserId(userData.id);
-          console.log('[Auth] First login - stored user ID locally:', userData.id);
+          console.log(
+            "[Auth] First login - stored user ID locally:",
+            userData.id,
+          );
         } else {
           setLocalUserId(existingLocalUserId);
-          console.log('[Auth] User logged in:', userData.id, 'Preserving original localUserId:', existingLocalUserId);
+          console.log(
+            "[Auth] User logged in:",
+            userData.id,
+            "Preserving original localUserId:",
+            existingLocalUserId,
+          );
         }
-        
+
         // Add this user ID to the list of all user IDs (for multi-account support)
         const storedAllUserIds = await AsyncStorage.getItem(ALL_USER_IDS_KEY);
         let allIds: string[] = [];
@@ -373,64 +341,88 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           try {
             allIds = JSON.parse(storedAllUserIds);
           } catch (parseError) {
-            console.error('[Auth] Failed to parse all user IDs:', parseError);
+            console.error("[Auth] Failed to parse all user IDs:", parseError);
             allIds = [];
           }
         }
-        
+
         // Add the new user ID if it's not already in the list
         if (!allIds.includes(userData.id)) {
           allIds.push(userData.id);
           await AsyncStorage.setItem(ALL_USER_IDS_KEY, JSON.stringify(allIds));
-          console.log('[Auth] Added user ID to all user IDs list:', userData.id, 'Total IDs:', allIds.length);
+          console.log(
+            "[Auth] Added user ID to all user IDs list:",
+            userData.id,
+            "Total IDs:",
+            allIds.length,
+          );
         }
-        
+
         // 🔥 NEW: Fetch participants created by this user and add their creator IDs to allUserIds
         // This ensures that if a user's ID changed (e.g., due to Better Auth migration),
         // they can still edit expenses created by participants they own
         try {
-          console.log('[Auth] Fetching participants to discover historical user IDs...');
+          console.log(
+            "[Auth] Fetching participants to discover historical user IDs...",
+          );
           const response = await fetch(`${BACKEND_URL}/api/participants`);
           if (response.ok) {
             const participants = await response.json();
-            console.log('[Auth] Fetched participants:', participants.length);
-            
+            console.log("[Auth] Fetched participants:", participants.length);
+
             // Extract unique creator IDs from participants
             const participantCreatorIds = participants
               .map((p: any) => p.createdBy)
-              .filter((id: any) => id && typeof id === 'string');
-            
-            console.log('[Auth] Participant creator IDs found:', participantCreatorIds);
-            
+              .filter((id: any) => id && typeof id === "string");
+
+            console.log(
+              "[Auth] Participant creator IDs found:",
+              participantCreatorIds,
+            );
+
             // Add any new creator IDs to allUserIds
             let updated = false;
             for (const creatorId of participantCreatorIds) {
               if (!allIds.includes(creatorId)) {
                 allIds.push(creatorId);
                 updated = true;
-                console.log('[Auth] Added historical user ID from participant:', creatorId);
+                console.log(
+                  "[Auth] Added historical user ID from participant:",
+                  creatorId,
+                );
               }
             }
-            
+
             if (updated) {
-              await AsyncStorage.setItem(ALL_USER_IDS_KEY, JSON.stringify(allIds));
-              console.log('[Auth] Updated allUserIds with historical IDs. Total IDs:', allIds.length, 'IDs:', allIds);
+              await AsyncStorage.setItem(
+                ALL_USER_IDS_KEY,
+                JSON.stringify(allIds),
+              );
+              console.log(
+                "[Auth] Updated allUserIds with historical IDs. Total IDs:",
+                allIds.length,
+                "IDs:",
+                allIds,
+              );
             }
           }
         } catch (participantError) {
-          console.error('[Auth] Failed to fetch participants for historical user IDs:', participantError);
+          console.error(
+            "[Auth] Failed to fetch participants for historical user IDs:",
+            participantError,
+          );
           // Don't fail the whole auth flow if this fails
         }
-        
+
         setAllUserIds(allIds);
-        console.log('[Auth] Final allUserIds state:', allIds);
-        
+        console.log("[Auth] Final allUserIds state:", allIds);
+
         // Sync token to SecureStore for utils/api.ts
         if (session.data.session?.token) {
           await setBearerToken(session.data.session.token);
         }
       } else {
-        console.log('[Auth] No active session found');
+        console.log("[Auth] No active session found");
         setUser(null);
         await clearAuthTokens();
         // Keep localUserId and allUserIds - don't clear them when session expires
@@ -445,34 +437,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithEmail = async (email: string, password: string) => {
     try {
-      console.log('[Auth] Attempting email sign in for:', email);
+      console.log("[Auth] Attempting email sign in for:", email);
       const result = await authClient.signIn.email({ email, password });
-      console.log('[Auth] Sign in result:', JSON.stringify(result, null, 2));
-      
+      console.log("[Auth] Sign in result:", JSON.stringify(result, null, 2));
+
       // Check if the result contains an error (Better Auth can return errors in the result)
-      if (result && typeof result === 'object' && 'error' in result && result.error) {
-        console.log('[Auth] Sign in returned error in result:', result);
-        
+      if (
+        result &&
+        typeof result === "object" &&
+        "error" in result &&
+        result.error
+      ) {
+        console.log("[Auth] Sign in returned error in result:", result);
+
         // Better Auth returns errors in result.error, which itself has { error, message, statusCode }
         const errorData = (result as any).error;
         const { message, code } = parseAuthError(errorData);
-        
-        console.log('[Auth] Parsed error from result - Code:', code, 'Message:', message);
-        
+
+        console.log(
+          "[Auth] Parsed error from result - Code:",
+          code,
+          "Message:",
+          message,
+        );
+
         const structuredError: any = new Error(message);
         structuredError.error = code;
         throw structuredError;
       }
-      
+
       await fetchUser();
     } catch (error: any) {
       console.error("[Auth] Email sign in failed:", error);
-      console.error("[Auth] Error stringified:", JSON.stringify(error, null, 2));
-      
+      console.error(
+        "[Auth] Error stringified:",
+        JSON.stringify(error, null, 2),
+      );
+
       const { message, code } = parseAuthError(error);
-      
-      console.log('[Auth] Parsed error from catch - Code:', code, 'Message:', message);
-      
+
+      console.log(
+        "[Auth] Parsed error from catch - Code:",
+        code,
+        "Message:",
+        message,
+      );
+
       // Create a structured error object
       const structuredError: any = new Error(message);
       structuredError.error = code;
@@ -480,44 +490,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signUpWithEmail = async (email: string, password: string, name?: string) => {
+  const signUpWithEmail = async (
+    email: string,
+    password: string,
+    name?: string,
+  ) => {
     try {
-      console.log('[Auth] Attempting email sign up for:', email, 'with name:', name);
-      console.log('[Auth] Sign up payload:', { email, password: '***', name });
-      
+      console.log(
+        "[Auth] Attempting email sign up for:",
+        email,
+        "with name:",
+        name,
+      );
+      console.log("[Auth] Sign up payload:", { email, password: "***", name });
+
       const result = await authClient.signUp.email({
         email,
         password,
         name,
       });
-      
-      console.log('[Auth] Sign up result:', JSON.stringify(result, null, 2));
-      
+
+      console.log("[Auth] Sign up result:", JSON.stringify(result, null, 2));
+
       // Check if the result contains an error (Better Auth can return errors in the result)
-      if (result && typeof result === 'object' && 'error' in result && result.error) {
-        console.log('[Auth] Sign up returned error in result:', result);
-        
+      if (
+        result &&
+        typeof result === "object" &&
+        "error" in result &&
+        result.error
+      ) {
+        console.log("[Auth] Sign up returned error in result:", result);
+
         // Better Auth returns errors in result.error, which itself has { error, message, statusCode }
         const errorData = (result as any).error;
         const { message, code } = parseAuthError(errorData);
-        
-        console.log('[Auth] Parsed error from result - Code:', code, 'Message:', message);
-        
+
+        console.log(
+          "[Auth] Parsed error from result - Code:",
+          code,
+          "Message:",
+          message,
+        );
+
         const structuredError: any = new Error(message);
         structuredError.error = code;
         throw structuredError;
       }
-      
+
       // Don't auto-login after signup - user needs to verify email first
-      console.log('[Auth] Sign up successful, email verification required');
+      console.log("[Auth] Sign up successful, email verification required");
     } catch (error: any) {
       console.error("[Auth] Email sign up failed:", error);
-      console.error("[Auth] Error stringified:", JSON.stringify(error, null, 2));
-      
+      console.error(
+        "[Auth] Error stringified:",
+        JSON.stringify(error, null, 2),
+      );
+
       const { message, code } = parseAuthError(error);
-      
-      console.log('[Auth] Parsed error from catch - Code:', code, 'Message:', message);
-      
+
+      console.log(
+        "[Auth] Parsed error from catch - Code:",
+        code,
+        "Message:",
+        message,
+      );
+
       // Create a structured error object
       const structuredError: any = new Error(message);
       structuredError.error = code;
@@ -525,197 +562,61 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const waitForSocialSession = async () => {
+    for (
+      let attempt = 1;
+      attempt <= SOCIAL_SIGN_IN_SESSION_POLL_ATTEMPTS;
+      attempt++
+    ) {
+      const session = await authClient.getSession();
+      if (session?.data?.user) {
+        await fetchUser();
+        return;
+      }
+      await sleep(SOCIAL_SIGN_IN_SESSION_POLL_DELAY_MS);
+    }
+
+    throw new Error(
+      "Social sign-in completed, but no active session was returned by the backend.",
+    );
+  };
+
   const signInWithSocial = async (provider: "google" | "apple" | "github") => {
     try {
-      if (Platform.OS === "web") {
-        const token = await openOAuthPopup(provider);
-        await setBearerToken(token);
-        await fetchUser();
-      } else {
-        // Native: bypass the @better-auth/expo client's social flow. It
-        // calls openAuthSessionAsync with an internal proxy and expects
-        // the server-side @better-auth/expo plugin to redirect to the
-        // deep link with ?cookie=<session>. We don't have that plugin
-        // server-side, so the SDK silently fails when the deep link
-        // arrives without the cookie param.
-        //
-        // Instead, drive the flow ourselves:
-        //   1. POST /api/auth/sign-in/social to get the Google OAuth URL
-        //   2. Open the OAuth URL directly with openAuthSessionAsync,
-        //      watching for the deep link `childcosts://auth-callback`
-        //   3. The backend's /api/auth/callback/google processes Google's
-        //      code, sets a Better Auth session, then redirects to the
-        //      deep link — the same response Better Auth produces for
-        //      web clients.
-        //   4. After openAuthSessionAsync returns, ask the backend for
-        //      the current session (cookie or bearer token will be set)
-        //      and pull the user.
-        const callbackURL = Linking.createURL("auth-callback");
-        console.log(`[Auth] Starting ${provider} OAuth, deep link:`, callbackURL);
+      const callbackURL =
+        Platform.OS === "web"
+          ? `${window.location.origin}/auth-callback`
+          : Linking.createURL("auth-callback");
 
-        // Ship a breadcrumb to the backend ring buffer so we can read
-        // what the client saw even when remote console is unavailable.
-        const debugLog = (event: string, data?: any) => {
-          try {
-            fetch(`${BACKEND_URL}/api/auth/debug-client-log`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ source: "AuthContext.signInWithSocial", event, data }),
-            }).catch(() => {});
-          } catch {}
-        };
+      console.log(
+        `[Auth] Starting ${provider} social sign-in with callback:`,
+        callbackURL,
+      );
 
-        debugLog("start", { provider, callbackURL });
+      const result = await authClient.signIn.social({
+        provider,
+        callbackURL,
+      });
 
-        // Do NOT POST /sign-in/social from the app — that creates the
-        // OAuth state under an HTTP session/cookie that the system
-        // browser can't see. Better Auth then fails the callback with
-        // state_mismatch because the cookie isn't present.
-        //
-        // Instead, hand the entire flow to the browser via a server
-        // endpoint that initiates the sign-in: the same browser session
-        // sets the state cookie, follows the Google redirects, and is
-        // present when /api/auth/callback/google verifies the cookie.
-        const initiateUrl =
-          `${BACKEND_URL}/api/auth/initiate-social/${encodeURIComponent(provider)}` +
-          `?callbackURL=${encodeURIComponent(callbackURL)}`;
-
-        let WebBrowser: typeof import("expo-web-browser");
-        try {
-          WebBrowser = await import("expo-web-browser");
-        } catch (e: any) {
-          debugLog("webbrowser-import-failed", { message: e?.message });
-          throw new Error(`expo-web-browser unavailable: ${e?.message || e}`);
-        }
-
-        debugLog("opening-browser", { callbackURL, initiateUrl });
-
-        // Skip openAuthSessionAsync entirely. On this device it
-        // dismisses the Custom Tab the moment Google starts redirecting
-        // to the backend, before the browser even loads the callback
-        // URL — so the backend never sees /api/auth/callback/google.
-        //
-        // Instead: open the OAuth URL in the system browser via
-        // Linking.openURL. The system handles the full redirect chain
-        // (Google -> backend -> childcosts://). When the deep link
-        // fires, our intent filter brings the app to foreground and
-        // the Linking 'url' listener below resolves with the token.
-        const deepLinkPromise = new Promise<string>((resolve) => {
-          const sub = Linking.addEventListener("url", (evt) => {
-            try {
-              if (evt?.url && evt.url.startsWith("childcosts://auth-callback")) {
-                sub.remove();
-                resolve(evt.url);
-              }
-            } catch {}
-          });
-        });
-
-        // Verify a browser is actually available before launching the
-        // Intent.ACTION_VIEW (Android) / openURL: (iOS) under the hood.
-        try {
-          const canOpen = await Linking.canOpenURL(initiateUrl);
-          debugLog("can-open-url", { canOpen });
-          if (!canOpen) {
-            throw new Error(
-              "No browser available to start Google sign-in. Please install a browser (Chrome, Edge, Firefox, etc.) and try again."
-            );
-          }
-        } catch (e: any) {
-          if (e?.message?.startsWith("No browser available")) throw e;
-          debugLog("canOpenURL-threw", { message: e?.message });
-        }
-
-        try {
-          await Linking.openURL(initiateUrl);
-        } catch (e: any) {
-          debugLog("linking-openURL-threw", { message: e?.message });
-          throw new Error(`Could not open browser: ${e?.message || e}`);
-        }
-
-        const TIMEOUT_MS = 3 * 60 * 1000;
-        const finalUrl: string | null = await Promise.race([
-          deepLinkPromise,
-          new Promise<string | null>((resolve) => setTimeout(() => resolve(null), TIMEOUT_MS)),
-        ]);
-
-        debugLog("browser-result", {
-          type: finalUrl ? "deep-link" : "timeout",
-          finalUrl: finalUrl ? finalUrl.slice(0, 500) : null,
-        });
-
-        if (!finalUrl) {
-          throw new Error(
-            `Google sign-in timed out. Browser may have failed to return to the app.`
-          );
-        }
-
-        // Try to close the system browser tab so the user lands back in
-        // our app cleanly. This is best-effort and platform-dependent.
-        try { WebBrowser.dismissBrowser(); } catch {}
-
-        // Extract session token from the deep link URL (server appends
-        // it in the OAuth callback redirect — see backend onSend hook)
-        // and store it in BOTH locations so subsequent requests pick
-        // it up: our app-level SecureStore key, and the @better-auth/expo
-        // client's internal cookie storage.
-        try {
-          const returned = new URL(finalUrl);
-
-          // Preferred path: the @better-auth/expo server plugin appends
-          // ?cookie=<Set-Cookie header value> to the deep link. Parse it
-          // and persist into the @better-auth/expo client's cookie store
-          // so subsequent /api/auth/get-session calls carry the session.
-          const cookieHeader = returned.searchParams.get("cookie");
-          if (cookieHeader) {
-            const expoPayload = setCookieHeaderToExpoStore(cookieHeader);
-            await writeExpoCookieStore(expoPayload);
-            debugLog("session-stored", { source: "cookie-param", cookieNames: Object.keys(JSON.parse(expoPayload)) });
-            return;
-          }
-
-          // Fallback path (used while our manual /initiate-social route
-          // was the only thing producing redirects): single token query
-          // param, name supplied separately.
-          const token =
-            returned.searchParams.get("token") ||
-            returned.searchParams.get("better_auth_token");
-          const cookieName = returned.searchParams.get("cookieName");
-          if (token) {
-            await setBearerToken(token);
-            await storeBetterAuthSessionToken(token, cookieName);
-            debugLog("session-stored", { source: "token-param", cookieName });
-          } else {
-            debugLog("session-missing", { url: finalUrl.slice(0, 300) });
-          }
-        } catch (e: any) {
-          debugLog("token-store-threw", { message: e?.message });
-        }
-
-        // Pull the session a few times — Better Auth needs a moment.
-        let attempts = 0;
-        const maxAttempts = 10;
-        const pollInterval = setInterval(async () => {
-          attempts++;
-          try {
-            const session = await authClient.getSession();
-            if (session?.data?.user) {
-              clearInterval(pollInterval);
-              await fetchUser();
-            } else if (attempts >= maxAttempts) {
-              clearInterval(pollInterval);
-            }
-          } catch (err) {
-            if (attempts >= maxAttempts) clearInterval(pollInterval);
-          }
-        }, 1000);
+      if (
+        result &&
+        typeof result === "object" &&
+        "error" in result &&
+        result.error
+      ) {
+        const { message, code } = parseAuthError((result as any).error);
+        const structuredError: any = new Error(message);
+        structuredError.error = code;
+        throw structuredError;
       }
+
+      await waitForSocialSession();
     } catch (error: any) {
       console.error(`${provider} sign in failed:`, error);
-      // Re-throw with the underlying message preserved so the auth
-      // screen can show what actually broke instead of a generic
-      // "google sign in failed. Please try again." string.
-      if (error?.message?.includes("cancelled") || error?.message?.includes("canceled")) {
+      if (
+        error?.message?.includes("cancelled") ||
+        error?.message?.includes("canceled")
+      ) {
         throw new Error("Sign in was cancelled");
       }
       throw error instanceof Error ? error : new Error(String(error));
@@ -732,10 +633,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error("Sign out failed (API):", error);
     } finally {
-       // Always clear local state
-       setUser(null);
-       await clearAuthTokens();
-       // Keep localUserId - don't clear it on sign out
+      // Always clear local state
+      setUser(null);
+      await clearAuthTokens();
+      // Keep localUserId - don't clear it on sign out
     }
   };
 

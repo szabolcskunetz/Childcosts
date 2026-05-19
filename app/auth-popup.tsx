@@ -12,14 +12,35 @@ export default function AuthPopupScreen() {
     if (Platform.OS !== "web") return;
 
     if (!provider || !["google", "github", "apple"].includes(provider)) {
-      window.opener?.postMessage({ type: "oauth-error", error: "Invalid provider" }, "*");
+      window.opener?.postMessage(
+        { type: "oauth-error", error: "Invalid provider" },
+        window.location.origin,
+      );
       return;
     }
 
-    authClient.signIn.social({
-      provider: provider as any,
-      callbackURL: `${window.location.origin}/auth-callback`,
-    });
+    authClient.signIn
+      .social({
+        provider: provider as any,
+        callbackURL: `${window.location.origin}/auth-callback`,
+      })
+      .then((result: any) => {
+        if (result?.error) {
+          window.opener?.postMessage(
+            {
+              type: "oauth-error",
+              error: result.error?.message || "OAuth failed",
+            },
+            window.location.origin,
+          );
+        }
+      })
+      .catch((error: any) => {
+        window.opener?.postMessage(
+          { type: "oauth-error", error: error?.message || "OAuth failed" },
+          window.location.origin,
+        );
+      });
   }, [provider]);
 
   return (

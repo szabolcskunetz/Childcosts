@@ -1,7 +1,13 @@
 // Copyright (c) 2026 Kunetz Szabolcs. All rights reserved.
 
 import React, { useEffect, useState } from "react";
-import { View, Text, ActivityIndicator, StyleSheet, TouchableOpacity } from "react-native";
+import {
+  View,
+  Text,
+  ActivityIndicator,
+  StyleSheet,
+  TouchableOpacity,
+} from "react-native";
 import { Platform } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/contexts/AuthContext";
@@ -17,7 +23,7 @@ export default function AuthCallbackScreen() {
 
   useEffect(() => {
     console.log("[Auth Callback] Screen mounted, platform:", Platform.OS);
-    
+
     if (Platform.OS === "web") {
       handleWebCallback();
     } else {
@@ -25,7 +31,7 @@ export default function AuthCallbackScreen() {
     }
   }, []);
 
-  const handleWebCallback = () => {
+  const handleWebCallback = async () => {
     try {
       console.log("[Auth Callback Web] Processing web callback");
       const urlParams = new URLSearchParams(window.location.search);
@@ -38,23 +44,30 @@ export default function AuthCallbackScreen() {
         hasToken: !!token,
         error,
         verified,
-        verificationError
+        verificationError,
       });
 
       // Handle email verification success
       if (verified === "true") {
         console.log("[Auth Callback Web] Email verification successful");
         setStatus("success");
-        setMessage("🎉 Your email has been verified successfully!\n\nYou can now sign in to your account and start using all features.");
-        
+        setMessage(
+          "🎉 Your email has been verified successfully!\n\nYou can now sign in to your account and start using all features.",
+        );
+
         // If this is a popup window (OAuth flow), notify parent
         if (window.opener) {
           console.log("[Auth Callback Web] Notifying parent window");
-          window.opener.postMessage({ type: "verification-success" }, "*");
+          window.opener.postMessage(
+            { type: "verification-success" },
+            window.location.origin,
+          );
           setTimeout(() => window.close(), 2000);
         } else {
           // If this is a direct navigation (email link), redirect to auth page after delay
-          console.log("[Auth Callback Web] Redirecting to auth page in 4 seconds");
+          console.log(
+            "[Auth Callback Web] Redirecting to auth page in 4 seconds",
+          );
           setTimeout(() => {
             router.replace("/auth");
           }, 4000);
@@ -64,12 +77,18 @@ export default function AuthCallbackScreen() {
 
       // Handle email verification error
       if (verificationError) {
-        console.log("[Auth Callback Web] Email verification error:", verificationError);
+        console.log(
+          "[Auth Callback Web] Email verification error:",
+          verificationError,
+        );
         setStatus("error");
         setMessage(`❌ Email verification failed\n\n${verificationError}`);
-        
+
         if (window.opener) {
-          window.opener.postMessage({ type: "verification-error", error: verificationError }, "*");
+          window.opener.postMessage(
+            { type: "verification-error", error: verificationError },
+            window.location.origin,
+          );
           setTimeout(() => window.close(), 3000);
         } else {
           setTimeout(() => {
@@ -79,26 +98,50 @@ export default function AuthCallbackScreen() {
         return;
       }
 
-      // Handle OAuth callback
+      // Handle OAuth callback. Better Auth completes web OAuth by setting
+      // an HTTP-only session cookie; it does not need to expose a token in
+      // the query string. The previous implementation treated a missing
+      // better_auth_token as a failure even when the cookie was already set.
       if (error) {
         console.log("[Auth Callback Web] OAuth error:", error);
         setStatus("error");
         setMessage(`❌ Authentication failed\n\n${error}`);
-        window.opener?.postMessage({ type: "oauth-error", error }, "*");
+        window.opener?.postMessage(
+          { type: "oauth-error", error },
+          window.location.origin,
+        );
         return;
       }
 
-      if (token) {
-        console.log("[Auth Callback Web] OAuth token received");
+      try {
+        await fetchUser();
         setStatus("success");
-        setMessage("✅ Authentication successful!\n\nClosing...");
-        window.opener?.postMessage({ type: "oauth-success", token }, "*");
-        setTimeout(() => window.close(), 1000);
-      } else {
-        console.log("[Auth Callback Web] No token or verification status found");
+        setMessage("✅ Authentication successful!\n\nRedirecting...");
+        window.opener?.postMessage(
+          { type: "oauth-success" },
+          window.location.origin,
+        );
+        if (window.opener) {
+          setTimeout(() => window.close(), 1000);
+        } else {
+          setTimeout(() => router.replace("/"), 1000);
+        }
+      } catch (sessionError: any) {
+        console.error(
+          "[Auth Callback Web] Session refresh failed:",
+          sessionError,
+        );
         setStatus("error");
-        setMessage("❌ No authentication data received");
-        window.opener?.postMessage({ type: "oauth-error", error: "No token" }, "*");
+        setMessage(
+          "❌ Authentication completed, but the app could not load the session.",
+        );
+        window.opener?.postMessage(
+          {
+            type: "oauth-error",
+            error: sessionError?.message || "Session refresh failed",
+          },
+          window.location.origin,
+        );
       }
     } catch (err) {
       console.error("[Auth Callback Web] Error:", err);
@@ -110,7 +153,7 @@ export default function AuthCallbackScreen() {
   const handleNativeCallback = async () => {
     try {
       console.log("[Auth Callback Native] Processing native callback");
-      
+
       // Get the URL that opened this screen
       const url = await Linking.getInitialURL();
       console.log("[Auth Callback Native] Initial URL:", url);
@@ -123,8 +166,10 @@ export default function AuthCallbackScreen() {
         if (queryParams?.verified === "true") {
           console.log("[Auth Callback Native] Email verification successful");
           setStatus("success");
-          setMessage("🎉 Your email has been verified successfully!\n\nYou can now sign in to your account and start using all features.");
-          
+          setMessage(
+            "🎉 Your email has been verified successfully!\n\nYou can now sign in to your account and start using all features.",
+          );
+
           // Redirect to auth page after delay
           setTimeout(() => {
             console.log("[Auth Callback Native] Redirecting to auth page");
@@ -135,11 +180,17 @@ export default function AuthCallbackScreen() {
 
         // Handle email verification error
         if (queryParams?.verification_error || queryParams?.error) {
-          const errorMsg = queryParams?.verification_error || queryParams?.error || "Unknown error";
-          console.log("[Auth Callback Native] Email verification error:", errorMsg);
+          const errorMsg =
+            queryParams?.verification_error ||
+            queryParams?.error ||
+            "Unknown error";
+          console.log(
+            "[Auth Callback Native] Email verification error:",
+            errorMsg,
+          );
           setStatus("error");
           setMessage(`❌ Email verification failed\n\n${errorMsg}`);
-          
+
           // Redirect to auth page after delay
           setTimeout(() => {
             console.log("[Auth Callback Native] Redirecting to auth page");
@@ -152,17 +203,17 @@ export default function AuthCallbackScreen() {
       // For OAuth callbacks, the Better Auth client will automatically process the callback
       // We just need to refresh the user session
       console.log("[Auth Callback Native] Attempting to refresh user session");
-      
+
       // Wait a moment for Better Auth to process the callback
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
       // Refresh user session
       await fetchUser();
-      
+
       console.log("[Auth Callback Native] User session refreshed successfully");
       setStatus("success");
       setMessage("✅ Authentication successful!\n\nRedirecting...");
-      
+
       // Navigate to home
       setTimeout(() => {
         console.log("[Auth Callback Native] Redirecting to home");
@@ -171,11 +222,15 @@ export default function AuthCallbackScreen() {
     } catch (err) {
       console.error("[Auth Callback Native] Error:", err);
       setStatus("error");
-      setMessage("❌ Failed to process authentication\n\nPlease try signing in again.");
-      
+      setMessage(
+        "❌ Failed to process authentication\n\nPlease try signing in again.",
+      );
+
       // Navigate to auth page after delay
       setTimeout(() => {
-        console.log("[Auth Callback Native] Redirecting to auth page after error");
+        console.log(
+          "[Auth Callback Native] Redirecting to auth page after error",
+        );
         router.replace("/auth");
       }, 3000);
     }
@@ -199,7 +254,7 @@ export default function AuthCallbackScreen() {
           <Text style={styles.processingText}>Processing...</Text>
         </>
       )}
-      
+
       {status === "success" && (
         <>
           <View style={styles.iconContainer}>
@@ -208,7 +263,7 @@ export default function AuthCallbackScreen() {
           <Text style={styles.title}>✅ Email Verified!</Text>
         </>
       )}
-      
+
       {status === "error" && (
         <>
           <View style={styles.iconContainer}>
@@ -217,23 +272,32 @@ export default function AuthCallbackScreen() {
           <Text style={styles.title}>Error</Text>
         </>
       )}
-      
+
       <Text style={styles.message}>{message}</Text>
-      
+
       {status === "success" && (
         <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.primaryButton} onPress={handleGoToAuth}>
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={handleGoToAuth}
+          >
             <Text style={styles.primaryButtonText}>Go to Sign In</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.secondaryButton} onPress={handleGoToHome}>
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={handleGoToHome}
+          >
             <Text style={styles.secondaryButtonText}>Go to Home</Text>
           </TouchableOpacity>
         </View>
       )}
-      
+
       {status === "error" && (
         <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.primaryButton} onPress={handleGoToAuth}>
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={handleGoToAuth}
+          >
             <Text style={styles.primaryButtonText}>Go to Sign In</Text>
           </TouchableOpacity>
         </View>
