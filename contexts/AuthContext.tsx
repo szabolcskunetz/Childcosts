@@ -697,13 +697,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // authClient.signIn.social() + expo-authorization-proxy path returned
       // control to the app before Google ever hit /api/auth/callback/google;
       // the logs then showed only repeated get-session calls with no session.
-      // This browser-owned GET route creates the state cookie, redirects to
-      // Google, receives Google's callback, and finally deep-links back to the app.
+      // This browser-owned GET route returns a real 302 with Set-Cookie, then redirects to
+      // Google. A navigation response stores OAuth cookies more reliably than a
+      // JavaScript fetch response inside an intermediate page on Android.
       const initiateUrl =
-        `${BACKEND_URL}/api/auth/mobile-social/${encodeURIComponent(provider)}` +
+        `${BACKEND_URL}/api/auth/initiate-social/${encodeURIComponent(provider)}` +
         `?callbackURL=${encodeURIComponent(callbackURL)}`;
 
-      debugLog("opening-browser-oauth-page", {
+      debugLog("opening-browser-owned-oauth-redirect", {
         provider,
         callbackURL,
         initiateUrl,
