@@ -700,10 +700,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // This browser-owned GET route creates the state cookie, redirects to
       // Google, receives Google's callback, and finally deep-links back to the app.
       const initiateUrl =
-        `${BACKEND_URL}/api/auth/initiate-social/${encodeURIComponent(provider)}` +
+        `${BACKEND_URL}/api/auth/mobile-social/${encodeURIComponent(provider)}` +
         `?callbackURL=${encodeURIComponent(callbackURL)}`;
 
-      debugLog("opening-browser-owned-oauth", {
+      debugLog("opening-browser-oauth-page", {
         provider,
         callbackURL,
         initiateUrl,
