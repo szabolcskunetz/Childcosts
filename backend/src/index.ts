@@ -211,6 +211,19 @@ app.withAuth({
     "http://localhost:*/**",
   ],
 
+  // OAuth state handling.
+  //
+  // Cloud Run / mobile OAuth flows are prone to Better Auth's database-backed
+  // state check failing with `please_restart_the_process` when the verification
+  // record is not available to the callback request (multi-instance routing,
+  // ephemeral storage, or stale/replayed browser sessions). Store the OAuth
+  // state in the signed/encrypted browser cookie instead; the callback log
+  // already confirms that `__Secure-better-auth.state` is sent back by the
+  // browser, so this removes the fragile DB lookup from the Google callback.
+  account: {
+    storeStateStrategy: "cookie",
+  },
+
   // Social sign-in providers. Always registered so the route exists;
   // the hosting platform may inject credentials at runtime, otherwise
   // empty strings fall through and sign-in errors are surfaced to the
