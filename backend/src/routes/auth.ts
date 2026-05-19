@@ -237,6 +237,27 @@ export function registerAuthRoutes(app: App) {
           return false;
         }
       })(),
+      // Probe whether the deployed Better Auth instance considers the
+      // mobile deep link a trusted origin (needed for the expo plugin
+      // to append ?cookie=... to the OAuth callback redirect).
+      trustedOriginProbe: await (async () => {
+        try {
+          // Hit our own root with the deep link as the Origin header
+          // and see how Better Auth's CORS treats it. Not perfect but
+          // a clear signal.
+          const res = await fetch(`https://${request.headers.host}/api/auth/ok`, {
+            method: 'GET',
+            headers: { Origin: 'childcosts://auth-callback' },
+          });
+          return {
+            status: res.status,
+            corsAllowOrigin: res.headers.get('access-control-allow-origin'),
+            corsAllowCreds: res.headers.get('access-control-allow-credentials'),
+          };
+        } catch (e: any) {
+          return { error: e?.message || String(e) };
+        }
+      })(),
     };
   });
 

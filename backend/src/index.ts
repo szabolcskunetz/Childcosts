@@ -315,11 +315,12 @@ app.fastify.addHook('onSend', async (request, reply, payload) => {
   }
 
   // On a successful social-callback redirect, copy the Better Auth
-  // session token from the Set-Cookie header into the redirect URL as
-  // `?token=...`. The mobile client opens this redirect via
-  // WebBrowser.openAuthSessionAsync and can only see the URL, not the
-  // Set-Cookie header — so without this hop the session would never
-  // reach the app's storage and the user would still appear signed out.
+  // Set-Cookie header into the redirect URL so the mobile client can
+  // read it after the deep link round-trip. The @better-auth/expo
+  // 1.4.22 server plugin tries to do this but calls
+  // ctx.context.isTrustedOrigin which doesn't exist in better-auth
+  // 1.4.5 (silently returns undefined → early return), so we
+  // reimplement that behavior ourselves.
   if (
     request.url.startsWith('/api/auth/callback/') &&
     reply.statusCode >= 300 && reply.statusCode < 400
@@ -332,32 +333,61 @@ app.fastify.addHook('onSend', async (request, reply, payload) => {
         : setCookieRaw
           ? [String(setCookieRaw)]
           : [];
-      // Capture both the full cookie name (e.g. __Secure-better-auth.session_token)
-      // and the token value, then surface both to the client so it can
-      // store the token under the exact name Better Auth will accept on
-      // subsequent requests.
-      let sessionToken: string | null = null;
-      let sessionCookieName: string | null = null;
-      for (const c of setCookies) {
-        const m = c.match(/((?:__Secure-|__Host-)?better-auth\.session_token)=([^;]+)/);
-        if (m && m[2] && m[2] !== '') {
-          sessionCookieName = m[1];
-          sessionToken = decodeURIComponent(m[2]);
-          break;
+
+      // Log Set-Cookie cookie names so we can verify Better Auth
+      // actually sets a session cookie on this response.
+      const setCookieNames = setCookies
+        .map((c) => {
+          const idx = c.indexOf('=');
+          return idx > 0 ? c.slice(0, idx).trim() : null;
+        })
+        .filter(Boolean);
+      pushAuthDebugLog({
+        ts: new Date().toISOString(),
+        phase: 'callback-set-cookie',
+        location,
+        setCookieNames,
+        setCookieCount: setCookies.length,
+      });
+
+      // Only act on deep-link redirects (childcosts://, exp://, etc.).
+      let isDeepLink = false;
+      try {
+        const proto = new URL(location).protocol;
+        isDeepLink = proto !== 'http:' && proto !== 'https:';
+      } catch {}
+
+      if (isDeepLink && setCookies.length > 0) {
+        // Pass the full Set-Cookie header value through as ?cookie=...
+        // — matches the contract the @better-auth/expo client plugin
+        // expects and our AuthContext parses on the receiving end.
+        const fullSetCookieHeader = setCookies.join(', ');
+
+        // Also extract the session token + its actual cookie name for
+        // backward compatibility with our older ?token=/?cookieName=
+        // client path.
+        let sessionToken: string | null = null;
+        let sessionCookieName: string | null = null;
+        for (const c of setCookies) {
+          const m = c.match(/((?:__Secure-|__Host-)?better-auth\.session_token)=([^;]+)/);
+          if (m && m[2] && m[2] !== '') {
+            sessionCookieName = m[1];
+            sessionToken = decodeURIComponent(m[2]);
+            break;
+          }
         }
-      }
-      if (sessionToken) {
+
         try {
           const url = new URL(location);
-          url.searchParams.set('token', sessionToken);
-          if (sessionCookieName) {
-            url.searchParams.set('cookieName', sessionCookieName);
-          }
+          url.searchParams.set('cookie', fullSetCookieHeader);
+          if (sessionToken) url.searchParams.set('token', sessionToken);
+          if (sessionCookieName) url.searchParams.set('cookieName', sessionCookieName);
           reply.header('Location', url.toString());
-          app.logger.info({ originalLocation: location, hasToken: true, cookieName: sessionCookieName }, 'Appended session token to OAuth redirect');
-        } catch {
-          // location wasn't a full URL; pass through unchanged
-        }
+          app.logger.info(
+            { originalLocation: location, addedCookie: true, addedToken: !!sessionToken, cookieName: sessionCookieName },
+            'Appended session info to OAuth deep-link redirect'
+          );
+        } catch {}
       }
     }
   }
