@@ -2,12 +2,288 @@
 import type { App } from "../index.js";
 import { projects, participants, expenses, settlements } from "../db/schema.js";
 import { user, session, account, verification } from "../db/auth-schema.js";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { randomBytes, randomUUID } from "node:crypto";
 
 export function registerAuthRoutes(app: App) {
   // Better Auth provides standard auth endpoints at /api/auth/*
   // (sign-up, sign-in, verify-email, reset-password, etc.)
 
+
+
+
+
+  // ---------------------------------------------------------------------------
+  // SIMPLE MOBILE GOOGLE OAUTH
+  // ---------------------------------------------------------------------------
+  // This bypasses Better Auth's /sign-in/social -> /callback/google state cookie
+  // flow for native mobile Google login. On Android the state cookie is not
+  // reliably returned after the Google round-trip, so Better Auth rejects the
+  // callback with state_mismatch / please_restart_the_process. The route below
+  // keeps the OAuth state server-side in the existing verification table,
+  // exchanges Google's code on the backend, creates a normal Better Auth session
+  // row, and returns only the session token to the app via its deep link.
+  const mobileGoogleRedirectPath = "/api/auth/mobile-google/callback";
+  const mobileGoogleStatePrefix = "mobile-google-oauth:";
+  const betterAuthSessionCookieName = "__Secure-better-auth.session_token";
+
+  const getPublicBaseUrl = (request: any) => {
+    const host = request.headers.host;
+    const proto = (request.headers["x-forwarded-proto"] as string) || "https";
+    return (
+      process.env.BETTER_AUTH_URL ||
+      process.env.BACKEND_URL ||
+      process.env.SERVICE_URL ||
+      `${proto}://${host}`
+    ).replace(/\/$/, "");
+  };
+
+  const safeMobileCallbackURL = (value?: string) => {
+    const candidate = value || "childcosts://auth-callback";
+    if (
+      candidate.startsWith("childcosts://auth-callback") ||
+      candidate.startsWith("exp://") ||
+      candidate.startsWith("http://localhost") ||
+      candidate.startsWith("https://localhost")
+    ) {
+      return candidate;
+    }
+    return "childcosts://auth-callback";
+  };
+
+  const appendOAuthError = (callbackURL: string, error: string) => {
+    const out = new URL(callbackURL);
+    out.searchParams.set("error", error);
+    return out.toString();
+  };
+
+  const upsertGoogleUserAndSession = async (profile: {
+    sub: string;
+    email: string;
+    emailVerified: boolean;
+    name?: string;
+    picture?: string;
+  }, request: any) => {
+    const now = new Date();
+    const existingUsers = await app.db
+      .select()
+      .from(user)
+      .where(eq(user.email, profile.email))
+      .limit(1);
+
+    let userId = existingUsers[0]?.id;
+    if (!userId) {
+      userId = randomUUID();
+      await app.db.insert(user).values({
+        id: userId,
+        email: profile.email,
+        name: profile.name || profile.email.split("@")[0] || "Google user",
+        image: profile.picture || null,
+        emailVerified: profile.emailVerified,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } else {
+      await app.db
+        .update(user)
+        .set({
+          name: profile.name || existingUsers[0].name,
+          image: profile.picture || existingUsers[0].image,
+          emailVerified: profile.emailVerified || existingUsers[0].emailVerified,
+          updatedAt: now,
+        })
+        .where(eq(user.id, userId));
+    }
+
+    const existingAccounts = await app.db
+      .select()
+      .from(account)
+      .where(
+        and(eq(account.providerId, "google"), eq(account.accountId, profile.sub)),
+      )
+      .limit(1);
+
+    if (existingAccounts.length === 0) {
+      await app.db.insert(account).values({
+        id: randomUUID(),
+        accountId: profile.sub,
+        providerId: "google",
+        userId,
+        createdAt: now,
+        updatedAt: now,
+      });
+    } else if (existingAccounts[0].userId !== userId) {
+      await app.db
+        .update(account)
+        .set({ userId, updatedAt: now })
+        .where(eq(account.id, existingAccounts[0].id));
+    }
+
+    const token = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + 60 * 60 * 24 * 7 * 1000);
+    const forwardedFor = request.headers["x-forwarded-for"];
+    const ipAddress = Array.isArray(forwardedFor)
+      ? forwardedFor[0]
+      : typeof forwardedFor === "string"
+        ? forwardedFor.split(",")[0]?.trim()
+        : request.ip;
+
+    await app.db.insert(session).values({
+      id: randomUUID(),
+      token,
+      userId,
+      expiresAt,
+      createdAt: now,
+      updatedAt: now,
+      ipAddress: ipAddress || null,
+      userAgent: request.headers["user-agent"] || null,
+    });
+
+    return token;
+  };
+
+  // GET /api/auth/mobile-google/start?callbackURL=childcosts://auth-callback
+  app.fastify.get<{
+    Querystring: { callbackURL?: string };
+  }>("/api/auth/mobile-google/start", async (request, reply) => {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      reply.code(500).type("text/plain; charset=utf-8");
+      return "GOOGLE_CLIENT_ID is not configured.";
+    }
+
+    const baseURL = getPublicBaseUrl(request);
+    const redirectURI = `${baseURL}${mobileGoogleRedirectPath}`;
+    const callbackURL = safeMobileCallbackURL(request.query.callbackURL);
+    const state = randomBytes(24).toString("base64url");
+    const now = new Date();
+
+    await app.db.insert(verification).values({
+      id: randomUUID(),
+      identifier: `${mobileGoogleStatePrefix}${state}`,
+      value: JSON.stringify({ callbackURL, redirectURI }),
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const google = new URL("https://accounts.google.com/o/oauth2/v2/auth");
+    google.searchParams.set("client_id", clientId);
+    google.searchParams.set("redirect_uri", redirectURI);
+    google.searchParams.set("response_type", "code");
+    google.searchParams.set("scope", "openid email profile");
+    google.searchParams.set("state", state);
+    google.searchParams.set("access_type", "offline");
+    google.searchParams.set("prompt", "select_account");
+
+    reply.header("Cache-Control", "no-store");
+    reply.redirect(302, google.toString());
+  });
+
+  // GET /api/auth/mobile-google/callback?code=...&state=...
+  app.fastify.get<{
+    Querystring: { code?: string; state?: string; error?: string };
+  }>(mobileGoogleRedirectPath, async (request, reply) => {
+    let callbackURL = "childcosts://auth-callback";
+
+    try {
+      if (request.query.error) {
+        reply.redirect(302, appendOAuthError(callbackURL, request.query.error));
+        return "";
+      }
+
+      const state = request.query.state;
+      const code = request.query.code;
+      if (!state || !code) {
+        reply.redirect(302, appendOAuthError(callbackURL, "missing_google_code_or_state"));
+        return "";
+      }
+
+      const records = await app.db
+        .select()
+        .from(verification)
+        .where(eq(verification.identifier, `${mobileGoogleStatePrefix}${state}`))
+        .limit(1);
+
+      const record = records[0];
+      if (!record || record.expiresAt.getTime() < Date.now()) {
+        reply.redirect(302, appendOAuthError(callbackURL, "expired_or_invalid_google_state"));
+        return "";
+      }
+
+      try {
+        const saved = JSON.parse(record.value);
+        callbackURL = safeMobileCallbackURL(saved.callbackURL);
+      } catch {}
+
+      await app.db.delete(verification).where(eq(verification.id, record.id));
+
+      const clientId = process.env.GOOGLE_CLIENT_ID;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+      if (!clientId || !clientSecret) {
+        reply.redirect(302, appendOAuthError(callbackURL, "missing_google_oauth_credentials"));
+        return "";
+      }
+
+      const redirectURI = `${getPublicBaseUrl(request)}${mobileGoogleRedirectPath}`;
+      const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          code,
+          client_id: clientId,
+          client_secret: clientSecret,
+          redirect_uri: redirectURI,
+          grant_type: "authorization_code",
+        }),
+      });
+
+      const tokenJson: any = await tokenResponse.json().catch(() => ({}));
+      if (!tokenResponse.ok || !tokenJson.id_token) {
+        app.logger.warn({ status: tokenResponse.status, tokenJson }, "Google token exchange failed");
+        reply.redirect(302, appendOAuthError(callbackURL, "google_token_exchange_failed"));
+        return "";
+      }
+
+      const infoResponse = await fetch(
+        `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(tokenJson.id_token)}`,
+      );
+      const info: any = await infoResponse.json().catch(() => ({}));
+      if (
+        !infoResponse.ok ||
+        info.aud !== clientId ||
+        !info.sub ||
+        !info.email ||
+        info.email_verified !== "true"
+      ) {
+        app.logger.warn({ status: infoResponse.status, info }, "Google id_token verification failed");
+        reply.redirect(302, appendOAuthError(callbackURL, "google_identity_verification_failed"));
+        return "";
+      }
+
+      const sessionToken = await upsertGoogleUserAndSession(
+        {
+          sub: info.sub,
+          email: info.email,
+          emailVerified: true,
+          name: info.name,
+          picture: info.picture,
+        },
+        request,
+      );
+
+      const out = new URL(callbackURL);
+      out.searchParams.set("token", sessionToken);
+      out.searchParams.set("cookieName", betterAuthSessionCookieName);
+      reply.header("Cache-Control", "no-store");
+      reply.redirect(302, out.toString());
+      return "";
+    } catch (error: any) {
+      app.logger.error({ err: error?.message || error }, "Mobile Google OAuth callback failed");
+      reply.redirect(302, appendOAuthError(callbackURL, "mobile_google_oauth_failed"));
+      return "";
+    }
+  });
 
 
   // GET /api/auth/mobile-social/:provider?callbackURL=...
