@@ -133,6 +133,15 @@ export function registerAuthRoutes(app: App) {
         if (single) reply.header("Set-Cookie", single);
       }
 
+      // Diagnostic cookie: if this also fails to appear on
+      // /api/auth/callback/google, the browser or hosting layer is dropping all
+      // cookies for this OAuth round-trip, not only Better Auth's state cookie.
+      reply.header(
+        "Set-Cookie",
+        `childcosts_oauth_probe=${Date.now()}; Path=/; Max-Age=600; Secure; SameSite=None`,
+      );
+      reply.header("Cache-Control", "no-store");
+
       const upstreamText = await upstream.text();
       let parsed: any = null;
       try {

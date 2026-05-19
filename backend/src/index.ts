@@ -213,15 +213,21 @@ app.withAuth({
 
   // OAuth state handling.
   //
-  // Cloud Run / mobile OAuth flows are prone to Better Auth's database-backed
-  // state check failing with `please_restart_the_process` when the verification
-  // record is not available to the callback request (multi-instance routing,
-  // ephemeral storage, or stale/replayed browser sessions). Store the OAuth
-  // state in the signed/encrypted browser cookie instead; the callback log
-  // already confirms that `__Secure-better-auth.state` is sent back by the
-  // browser, so this removes the fragile DB lookup from the Google callback.
+  // Mobile OAuth on Android/Chrome Custom Tabs has been observed to drop the
+  // Better Auth state cookie when the cookie is produced by the app-side fetch
+  // or by a JS fetch on an intermediate page. Keep the cookie strategy, but make
+  // the state cookie eligible for cross-site OAuth redirects explicitly.
   account: {
     storeStateStrategy: "cookie",
+  },
+
+  advanced: {
+    useSecureCookies: true,
+    defaultCookieAttributes: {
+      secure: true,
+      sameSite: "none",
+      path: "/",
+    },
   },
 
   // Social sign-in providers. Always registered so the route exists;
