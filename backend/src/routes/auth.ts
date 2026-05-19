@@ -8,6 +8,79 @@ export function registerAuthRoutes(app: App) {
   // Better Auth provides standard auth endpoints at /api/auth/*
   // (sign-up, sign-in, verify-email, reset-password, etc.)
 
+
+
+  // GET /api/auth/mobile-social/:provider?callbackURL=...
+  //
+  // Native mobile OAuth bootstrap page. This page runs inside the external
+  // browser/custom tab, performs the Better Auth sign-in/social POST with
+  // credentials: "include", receives the state/PKCE cookie in that same
+  // browser cookie jar, and only then redirects to Google. This avoids the
+  // broken app-fetch -> browser-callback split where the state cookie is set
+  // in React Native/Expo storage but Google's callback arrives in Chrome with
+  // no cookie, causing `state_mismatch`.
+  app.fastify.get<{
+    Params: { provider: string };
+    Querystring: { callbackURL?: string };
+  }>("/api/auth/mobile-social/:provider", async (request, reply) => {
+    const { provider } = request.params;
+    const callbackURL = request.query.callbackURL || "childcosts://auth-callback";
+    const allowed = new Set(["google", "apple", "github"]);
+    if (!allowed.has(provider)) {
+      reply.code(400).type("text/plain; charset=utf-8");
+      return `Unsupported provider: ${provider}`;
+    }
+
+    const payload = JSON.stringify({ provider, callbackURL });
+    const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Signing in...</title>
+  <style>
+    body { font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; padding: 24px; color: #111827; }
+    .box { max-width: 420px; margin: 18vh auto; line-height: 1.5; }
+    .muted { color: #6b7280; font-size: 14px; }
+    pre { white-space: pre-wrap; background: #f3f4f6; padding: 12px; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <h1>Signing in...</h1>
+    <p class="muted">Please wait while Google sign-in starts.</p>
+    <pre id="err" hidden></pre>
+  </div>
+  <script>
+    (async function () {
+      const err = document.getElementById('err');
+      try {
+        const res = await fetch('/api/auth/sign-in/social', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: ${JSON.stringify(payload)}
+        });
+        const text = await res.text();
+        let data = null;
+        try { data = JSON.parse(text); } catch (_) {}
+        if (!res.ok || !data || !data.url) {
+          throw new Error('sign-in/social failed: ' + res.status + ' ' + text.slice(0, 500));
+        }
+        window.location.replace(data.url);
+      } catch (e) {
+        err.hidden = false;
+        err.textContent = e && e.message ? e.message : String(e);
+      }
+    })();
+  </script>
+</body>
+</html>`;
+
+    reply.type("text/html; charset=utf-8");
+    return html;
+  });
+
   // GET /api/auth/initiate-social/:provider?callbackURL=...
   //
   // Browser-initiated entry point for the OAuth flow. The mobile app
