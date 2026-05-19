@@ -9,6 +9,7 @@ import React, {
 } from "react";
 import { Platform } from "react-native";
 import * as Linking from "expo-linking";
+import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authClient, setBearerToken, clearAuthTokens } from "@/lib/auth";
 import { BACKEND_URL } from "@/utils/api";
@@ -18,6 +19,68 @@ const SOCIAL_SIGN_IN_SESSION_POLL_DELAY_MS = 500;
 
 function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// The @better-auth/expo client stores its cookies under `${storagePrefix}_cookie`.
+// storagePrefix is "childcosts" in lib/auth.ts, so native SecureStore/localStorage
+// must receive this exact JSON map for later get-session/API requests.
+const EXPO_AUTH_COOKIE_KEY = "childcosts_cookie";
+const DEFAULT_BETTER_AUTH_COOKIE_NAME = "__Secure-better-auth.session_token";
+
+async function storeBetterAuthSessionToken(
+  token: string,
+  cookieName?: string | null,
+) {
+  const name = cookieName || DEFAULT_BETTER_AUTH_COOKIE_NAME;
+  const payload = JSON.stringify({
+    [name]: { value: token, expires: null },
+  });
+  if (Platform.OS === "web") {
+    try {
+      localStorage.setItem(EXPO_AUTH_COOKIE_KEY, payload);
+    } catch {}
+  } else {
+    await SecureStore.setItemAsync(EXPO_AUTH_COOKIE_KEY, payload);
+  }
+}
+
+function setCookieHeaderToExpoStore(setCookieHeader: string): string {
+  const map: Record<string, { value: string; expires: string | null }> = {};
+  const entries = setCookieHeader.split(/, (?=[^;]+?=)/);
+  for (const entry of entries) {
+    const [pair, ...attrs] = entry.split(";").map((p) => p.trim());
+    const idx = pair.indexOf("=");
+    if (idx < 0) continue;
+    const name = pair.slice(0, idx);
+    const value = pair.slice(idx + 1);
+    let expires: string | null = null;
+    for (const attr of attrs) {
+      const eq = attr.indexOf("=");
+      if (eq < 0) continue;
+      const k = attr.slice(0, eq).toLowerCase();
+      const v = attr.slice(eq + 1);
+      if (k === "max-age") {
+        const sec = Number(v);
+        if (!Number.isNaN(sec))
+          expires = new Date(Date.now() + sec * 1000).toISOString();
+      } else if (k === "expires" && !expires) {
+        const d = new Date(v);
+        if (!Number.isNaN(d.getTime())) expires = d.toISOString();
+      }
+    }
+    map[name] = { value, expires };
+  }
+  return JSON.stringify(map);
+}
+
+async function writeExpoCookieStore(payload: string) {
+  if (Platform.OS === "web") {
+    try {
+      localStorage.setItem(EXPO_AUTH_COOKIE_KEY, payload);
+    } catch {}
+  } else {
+    await SecureStore.setItemAsync(EXPO_AUTH_COOKIE_KEY, payload);
+  }
 }
 
 const LOCAL_USER_ID_KEY = "@childcosts_local_user_id";
@@ -593,55 +656,139 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         callbackURL,
       );
 
-      // Breadcrumb to the backend ring buffer so we can see what the
-      // SDK observed inside the openAuthSessionAsync flow, even when
-      // Cloud Run routes our debug-logs call to a different instance.
+      // Web can use Better Auth's normal browser cookie flow.
+      if (Platform.OS === "web") {
+        const result = await authClient.signIn.social({
+          provider,
+          callbackURL,
+        });
+
+        if (
+          result &&
+          typeof result === "object" &&
+          "error" in result &&
+          result.error
+        ) {
+          const { message, code } = parseAuthError((result as any).error);
+          const structuredError: any = new Error(message);
+          structuredError.error = code;
+          throw structuredError;
+        }
+
+        await waitForSocialSession();
+        return;
+      }
+
       const debugLog = (event: string, data?: any) => {
         try {
           fetch(`${BACKEND_URL}/api/auth/debug-client-log`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ source: "AuthContext.signInWithSocial", event, data }),
+            body: JSON.stringify({
+              source: "AuthContext.signInWithSocial",
+              event,
+              data,
+            }),
           }).catch(() => {});
         } catch {}
       };
 
-      debugLog("sdk-start", { provider, callbackURL });
+      // Native fix: hand the complete OAuth flow to the browser. The previous
+      // authClient.signIn.social() + expo-authorization-proxy path returned
+      // control to the app before Google ever hit /api/auth/callback/google;
+      // the logs then showed only repeated get-session calls with no session.
+      // This browser-owned GET route creates the state cookie, redirects to
+      // Google, receives Google's callback, and finally deep-links back to the app.
+      const initiateUrl =
+        `${BACKEND_URL}/api/auth/initiate-social/${encodeURIComponent(provider)}` +
+        `?callbackURL=${encodeURIComponent(callbackURL)}`;
 
-      const result = await authClient.signIn.social({
+      debugLog("opening-browser-owned-oauth", {
         provider,
         callbackURL,
+        initiateUrl,
       });
 
-      debugLog("sdk-returned", {
-        hasError: !!(result && typeof result === "object" && "error" in result && (result as any).error),
-        keys: result && typeof result === "object" ? Object.keys(result) : null,
-      });
-
-      if (
-        result &&
-        typeof result === "object" &&
-        "error" in result &&
-        result.error
-      ) {
-        const { message, code } = parseAuthError((result as any).error);
-        const structuredError: any = new Error(message);
-        structuredError.error = code;
-        throw structuredError;
+      let WebBrowser: typeof import("expo-web-browser") | null = null;
+      try {
+        WebBrowser = await import("expo-web-browser");
+      } catch (e: any) {
+        debugLog("webbrowser-import-failed", { message: e?.message });
       }
 
-      // Peek at whether the SDK's openAuthSessionAsync actually
-      // surfaced a session cookie into storage.
-      try {
-        const stored = await (Platform.OS === "web"
-          ? Promise.resolve(localStorage.getItem("childcosts_cookie"))
-          : (await import("expo-secure-store")).getItemAsync("childcosts_cookie"));
-        const parsed = stored ? JSON.parse(stored) : null;
-        debugLog("cookie-storage-after-sdk", {
-          hasStorage: !!stored,
-          cookieNames: parsed ? Object.keys(parsed) : [],
+      const deepLinkPromise = new Promise<string>((resolve) => {
+        const sub = Linking.addEventListener("url", (evt) => {
+          if (!evt?.url) return;
+          const expectedPrefix = callbackURL.replace(/\/$/, "");
+          if (
+            evt.url.startsWith(expectedPrefix) ||
+            evt.url.startsWith("childcosts://auth-callback")
+          ) {
+            sub.remove();
+            resolve(evt.url);
+          }
         });
+      });
+
+      try {
+        await Linking.openURL(initiateUrl);
+      } catch (e: any) {
+        debugLog("open-url-failed", { message: e?.message });
+        throw new Error(
+          `Could not open browser for ${provider} sign-in: ${e?.message || e}`,
+        );
+      }
+
+      const finalUrl = await Promise.race([
+        deepLinkPromise,
+        new Promise<string | null>((resolve) =>
+          setTimeout(() => resolve(null), 3 * 60 * 1000),
+        ),
+      ]);
+
+      debugLog("oauth-browser-result", {
+        type: finalUrl ? "deep-link" : "timeout",
+        finalUrl: finalUrl ? finalUrl.slice(0, 500) : null,
+      });
+
+      if (!finalUrl) {
+        throw new Error(
+          "Google sign-in timed out: the browser did not return to the app. Check whether /api/auth/callback/google appears in the backend debug log after choosing the Google account.",
+        );
+      }
+
+      try {
+        WebBrowser?.dismissBrowser?.();
       } catch {}
+
+      try {
+        const returned = new URL(finalUrl);
+        const cookieHeader = returned.searchParams.get("cookie");
+        if (cookieHeader) {
+          const expoPayload = setCookieHeaderToExpoStore(cookieHeader);
+          await writeExpoCookieStore(expoPayload);
+          debugLog("session-cookie-stored", {
+            cookieNames: Object.keys(JSON.parse(expoPayload)),
+          });
+        } else {
+          const token =
+            returned.searchParams.get("token") ||
+            returned.searchParams.get("better_auth_token");
+          const cookieName = returned.searchParams.get("cookieName");
+          if (token) {
+            await setBearerToken(token);
+            await storeBetterAuthSessionToken(token, cookieName);
+            debugLog("session-token-stored", { cookieName });
+          } else {
+            debugLog("deep-link-without-session", {
+              url: finalUrl.slice(0, 500),
+            });
+          }
+        }
+      } catch (e: any) {
+        debugLog("session-store-failed", { message: e?.message });
+        throw new Error(`Could not store OAuth session: ${e?.message || e}`);
+      }
 
       await waitForSocialSession();
     } catch (error: any) {
