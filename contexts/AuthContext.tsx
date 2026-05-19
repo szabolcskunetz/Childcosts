@@ -701,8 +701,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Google. A navigation response stores OAuth cookies more reliably than a
       // JavaScript fetch response inside an intermediate page on Android.
       const initiateUrl =
-        `${BACKEND_URL}/api/auth/initiate-social/${encodeURIComponent(provider)}` +
-        `?callbackURL=${encodeURIComponent(callbackURL)}`;
+        provider === "google"
+          ? `${BACKEND_URL}/api/auth/mobile-google/start?callbackURL=${encodeURIComponent(callbackURL)}`
+          : `${BACKEND_URL}/api/auth/initiate-social/${encodeURIComponent(provider)}` +
+            `?callbackURL=${encodeURIComponent(callbackURL)}`;
 
       debugLog("opening-browser-owned-oauth-redirect", {
         provider,
