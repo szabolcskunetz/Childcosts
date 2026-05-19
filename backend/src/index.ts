@@ -366,6 +366,72 @@ function pushAuthDebugLog(entry: any) {
 }
 
 app.fastify.addHook("onSend", async (request, reply, payload) => {
+  // Native OAuth callback fix.
+  //
+  // In a browser-owned OAuth flow the Google callback is processed in the
+  // external browser, not inside the React Native app. The browser can receive
+  // Better Auth's Set-Cookie response, but the app cannot read that browser
+  // cookie jar. The @better-auth/expo plugin normally appends the Better Auth
+  // cookie to the deep-link redirect, but on our Cloud Run/Fastify wrapper the
+  // redirect has been observed to reach childcosts://auth-callback without any
+  // cookie/token query parameter. In that case the app correctly returns with
+  // no active SecureStore session.
+  //
+  // When Better Auth redirects to the app scheme and also sends Set-Cookie,
+  // mirror the Better Auth session cookie into the deep-link query so the
+  // mobile app can put it into the expoClient SecureStore cookie cache before
+  // calling get-session. This does not affect web OAuth redirects.
+  try {
+    const locationHeader = reply.getHeader("location");
+    const location = Array.isArray(locationHeader)
+      ? String(locationHeader[0] || "")
+      : typeof locationHeader === "string"
+        ? locationHeader
+        : locationHeader != null
+          ? String(locationHeader)
+          : "";
+
+    if (
+      reply.statusCode >= 300 &&
+      reply.statusCode < 400 &&
+      location.startsWith("childcosts://") &&
+      !location.includes("cookie=") &&
+      !location.includes("token=")
+    ) {
+      const setCookieHeader = reply.getHeader("set-cookie");
+      const setCookies = Array.isArray(setCookieHeader)
+        ? setCookieHeader.map(String)
+        : typeof setCookieHeader === "string"
+          ? [setCookieHeader]
+          : [];
+
+      const betterAuthCookies = setCookies.filter((cookie) =>
+        /(^|;|,\s*)(?:__Secure-)?better-auth\./i.test(cookie),
+      );
+      const sessionCookie =
+        betterAuthCookies.find((cookie) => /session_token=/i.test(cookie)) ||
+        betterAuthCookies[0];
+
+      if (sessionCookie) {
+        const redirectUrl = new URL(location);
+        redirectUrl.searchParams.set("cookie", sessionCookie);
+
+        const pair = sessionCookie.split(";", 1)[0] || "";
+        const idx = pair.indexOf("=");
+        if (idx > 0) {
+          redirectUrl.searchParams.set("cookieName", pair.slice(0, idx));
+        }
+
+        reply.header("Location", redirectUrl.toString());
+      }
+    }
+  } catch (err: any) {
+    app.logger.warn(
+      { err: err?.message || String(err), url: request.url },
+      "Could not append Better Auth cookie to native OAuth redirect",
+    );
+  }
+
   // Capture what Better Auth sends back for every /api/auth/* hit
   // (excluding debug/health checks) so we can see how/why the flow
   // ended where it did.
@@ -381,6 +447,13 @@ app.fastify.addHook("onSend", async (request, reply, payload) => {
       statusCode: reply.statusCode,
       location: reply.getHeader("location"),
       contentType: reply.getHeader("content-type"),
+      setCookieNames: (() => {
+        const h = reply.getHeader("set-cookie");
+        const arr = Array.isArray(h) ? h.map(String) : typeof h === "string" ? [h] : [];
+        return arr
+          .map((cookie) => cookie.split(";", 1)[0]?.split("=")[0])
+          .filter(Boolean);
+      })(),
     };
     try {
       const text =
@@ -390,10 +463,6 @@ app.fastify.addHook("onSend", async (request, reply, payload) => {
     app.logger.info(entry, "OAuth callback response");
     pushAuthDebugLog(entry);
   }
-
-  // Session-cookie propagation for mobile OAuth callbacks is handled by
-  // the official @better-auth/expo server plugin. Do not duplicate it here;
-  // adding custom token/cookie query parameters caused inconsistent client state.
 
   return payload;
 });
