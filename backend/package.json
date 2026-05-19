@@ -21,7 +21,7 @@
     "@neondatabase/serverless": "^1.0.2",
     "@better-auth/expo": "1.4.22",
     "@specific-dev/framework": "1.25.2",
-    "better-auth": "1.4.5",
+    "better-auth": "1.4.22",
     "commander": "^12.1.0",
     "csv-parse": "^6.1.0",
     "drizzle-orm": "^0.44.7",
