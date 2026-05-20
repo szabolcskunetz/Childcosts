@@ -12,8 +12,33 @@ import { Platform } from "react-native";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/contexts/AuthContext";
 import * as Linking from "expo-linking";
+import * as SecureStore from "expo-secure-store";
+import { setBearerToken } from "@/lib/auth";
 
 type Status = "processing" | "success" | "error";
+
+const EXPO_AUTH_COOKIE_KEY = "childcosts_cookie";
+const DEFAULT_BETTER_AUTH_COOKIE_NAME = "__Secure-better-auth.session_token";
+
+async function storeNativeSessionToken(
+  token: string,
+  cookieName?: string | null,
+) {
+  const names = Array.from(
+    new Set([
+      cookieName || DEFAULT_BETTER_AUTH_COOKIE_NAME,
+      DEFAULT_BETTER_AUTH_COOKIE_NAME,
+      "better-auth.session_token",
+    ]),
+  );
+  const payload = JSON.stringify(
+    Object.fromEntries(
+      names.map((name) => [name, { value: token, expires: null }]),
+    ),
+  );
+  await setBearerToken(token);
+  await SecureStore.setItemAsync(EXPO_AUTH_COOKIE_KEY, payload);
+}
 
 export default function AuthCallbackScreen() {
   const router = useRouter();
@@ -178,18 +203,33 @@ export default function AuthCallbackScreen() {
           return;
         }
 
-        // Handle email verification error
+        // Handle OAuth token returned by the custom mobile Google flow.
+        // This makes the callback screen resilient even if the AuthContext
+        // deep-link listener misses the event or runs later than routing.
+        const tokenParam = queryParams?.token || queryParams?.better_auth_token;
+        if (typeof tokenParam === "string" && tokenParam.length > 0) {
+          const cookieName =
+            typeof queryParams?.cookieName === "string"
+              ? queryParams.cookieName
+              : undefined;
+          await storeNativeSessionToken(tokenParam, cookieName);
+        }
+
+        // Handle email verification / OAuth error
         if (queryParams?.verification_error || queryParams?.error) {
           const errorMsg =
             queryParams?.verification_error ||
             queryParams?.error ||
             "Unknown error";
-          console.log(
-            "[Auth Callback Native] Email verification error:",
-            errorMsg,
-          );
+          const errorDescription =
+            typeof queryParams?.error_description === "string"
+              ? `\n\n${queryParams.error_description}`
+              : "";
+          console.log("[Auth Callback Native] Auth callback error:", errorMsg);
           setStatus("error");
-          setMessage(`❌ Email verification failed\n\n${errorMsg}`);
+          setMessage(
+            `❌ Authentication failed\n\n${errorMsg}${errorDescription}`,
+          );
 
           // Redirect to auth page after delay
           setTimeout(() => {

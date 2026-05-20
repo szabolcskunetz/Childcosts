@@ -12,7 +12,7 @@ import * as Linking from "expo-linking";
 import * as SecureStore from "expo-secure-store";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { authClient, setBearerToken, clearAuthTokens } from "@/lib/auth";
-import { BACKEND_URL } from "@/utils/api";
+import { BACKEND_URL, getBearerToken } from "@/utils/api";
 
 const SOCIAL_SIGN_IN_SESSION_POLL_ATTEMPTS = 10;
 const SOCIAL_SIGN_IN_SESSION_POLL_DELAY_MS = 500;
@@ -31,10 +31,19 @@ async function storeBetterAuthSessionToken(
   token: string,
   cookieName?: string | null,
 ) {
-  const name = cookieName || DEFAULT_BETTER_AUTH_COOKIE_NAME;
-  const payload = JSON.stringify({
-    [name]: { value: token, expires: null },
-  });
+  const primaryName = cookieName || DEFAULT_BETTER_AUTH_COOKIE_NAME;
+  const names = Array.from(
+    new Set([
+      primaryName,
+      DEFAULT_BETTER_AUTH_COOKIE_NAME,
+      "better-auth.session_token",
+    ]),
+  );
+  const payload = JSON.stringify(
+    Object.fromEntries(
+      names.map((name) => [name, { value: token, expires: null }]),
+    ),
+  );
   if (Platform.OS === "web") {
     try {
       localStorage.setItem(EXPO_AUTH_COOKIE_KEY, payload);
@@ -81,6 +90,49 @@ async function writeExpoCookieStore(payload: string) {
   } else {
     await SecureStore.setItemAsync(EXPO_AUTH_COOKIE_KEY, payload);
   }
+}
+
+async function readExpoCookieHeader(): Promise<string | null> {
+  try {
+    const raw =
+      Platform.OS === "web"
+        ? localStorage.getItem(EXPO_AUTH_COOKIE_KEY)
+        : await SecureStore.getItemAsync(EXPO_AUTH_COOKIE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const pairs = Object.entries(parsed)
+      .map(([name, value]: [string, any]) => {
+        const cookieValue = value?.value;
+        if (typeof cookieValue !== "string" || cookieValue.length === 0)
+          return null;
+        return `${name}=${encodeURIComponent(cookieValue)}`;
+      })
+      .filter(Boolean);
+    return pairs.length > 0 ? pairs.join("; ") : null;
+  } catch {
+    return null;
+  }
+}
+
+async function getMobileSessionFallback() {
+  if (!BACKEND_URL) return null;
+
+  const headers: Record<string, string> = {};
+  const token = await getBearerToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const cookieHeader = await readExpoCookieHeader();
+  if (cookieHeader) headers.Cookie = cookieHeader;
+
+  if (!headers.Authorization && !headers.Cookie) return null;
+
+  const response = await fetch(`${BACKEND_URL}/api/auth/mobile-session`, {
+    method: "GET",
+    headers,
+  });
+
+  if (!response.ok) return null;
+  return await response.json();
 }
 
 const LOCAL_USER_ID_KEY = "@childcosts_local_user_id";
@@ -371,10 +423,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setLoading(true);
       const session = await authClient.getSession();
-      console.log("[Auth] Session fetched:", session ? "Found" : "Not found");
+      let sessionData = session?.data;
 
-      if (session?.data?.user) {
-        const userData = session.data.user as User;
+      if (!sessionData?.user) {
+        const fallbackSession = await getMobileSessionFallback();
+        if (fallbackSession?.user) {
+          sessionData = fallbackSession;
+        }
+      }
+
+      console.log(
+        "[Auth] Session fetched:",
+        sessionData?.user ? "Found" : "Not found",
+      );
+
+      if (sessionData?.user) {
+        const userData = sessionData.user as User;
         setUser(userData);
 
         // Store user ID locally for offline ownership checks
@@ -481,8 +545,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.log("[Auth] Final allUserIds state:", allIds);
 
         // Sync token to SecureStore for utils/api.ts
-        if (session.data.session?.token) {
-          await setBearerToken(session.data.session.token);
+        if (sessionData.session?.token) {
+          await setBearerToken(sessionData.session.token);
         }
       } else {
         console.log("[Auth] No active session found");
@@ -632,7 +696,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       attempt++
     ) {
       const session = await authClient.getSession();
-      if (session?.data?.user) {
+      const fallbackSession = session?.data?.user
+        ? null
+        : await getMobileSessionFallback();
+      if (session?.data?.user || fallbackSession?.user) {
         await fetchUser();
         return;
       }
@@ -766,6 +833,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       try {
         const returned = new URL(finalUrl);
+        const oauthError = returned.searchParams.get("error");
+        if (oauthError) {
+          const description = returned.searchParams.get("error_description");
+          throw new Error(
+            description ? `${oauthError}: ${description}` : oauthError,
+          );
+        }
+
         const cookieHeader = returned.searchParams.get("cookie");
         if (cookieHeader) {
           const expoPayload = setCookieHeaderToExpoStore(cookieHeader);

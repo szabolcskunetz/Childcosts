@@ -42,7 +42,7 @@ Add this Authorized redirect URI to the Google OAuth client:
 
 For the current deployment this is likely:
 
-`https://fdsq3jk2xzsuzvmtwu88mqjg3nq4xhpj.app.specular.dev/api/auth/mobile-google/callback`
+`https://prod-proj-rbwzuzgnbjla5whlal77n-liwg5h36mq-ey.a.run.app/api/auth/mobile-google/callback`
 
 Keep the old Better Auth URI as well:
 

@@ -3,15 +3,20 @@ import type { App } from "../index.js";
 import { projects, participants, expenses, settlements } from "../db/schema.js";
 import { user, session, account, verification } from "../db/auth-schema.js";
 import { and, eq } from "drizzle-orm";
-import { randomBytes, randomUUID } from "node:crypto";
+import {
+  createHmac,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
+import {
+  getDbSessionFromRequest,
+  requireAnyAuth,
+} from "../utils/mobile-auth.js";
 
 export function registerAuthRoutes(app: App) {
   // Better Auth provides standard auth endpoints at /api/auth/*
   // (sign-up, sign-in, verify-email, reset-password, etc.)
-
-
-
-
 
   // ---------------------------------------------------------------------------
   // SIMPLE MOBILE GOOGLE OAUTH
@@ -19,12 +24,14 @@ export function registerAuthRoutes(app: App) {
   // This bypasses Better Auth's /sign-in/social -> /callback/google state cookie
   // flow for native mobile Google login. On Android the state cookie is not
   // reliably returned after the Google round-trip, so Better Auth rejects the
-  // callback with state_mismatch / please_restart_the_process. The route below
-  // keeps the OAuth state server-side in the existing verification table,
-  // exchanges Google's code on the backend, creates a normal Better Auth session
-  // row, and returns only the session token to the app via its deep link.
+  // callback with state_mismatch / please_restart_the_process.
+  //
+  // Keep this mobile flow deliberately simple and stateless: the OAuth `state`
+  // is a short HMAC-signed payload that contains the app callback URL and expiry.
+  // It does not depend on cookies, process memory, or a database row, so it works
+  // reliably on Cloud Run/serverless deployments where /start and /callback may
+  // hit different instances.
   const mobileGoogleRedirectPath = "/api/auth/mobile-google/callback";
-  const mobileGoogleStatePrefix = "mobile-google-oauth:";
   const betterAuthSessionCookieName = "__Secure-better-auth.session_token";
 
   const getPublicBaseUrl = (request: any) => {
@@ -51,19 +58,102 @@ export function registerAuthRoutes(app: App) {
     return "childcosts://auth-callback";
   };
 
-  const appendOAuthError = (callbackURL: string, error: string) => {
+  const appendOAuthError = (
+    callbackURL: string,
+    error: string,
+    description?: string,
+  ) => {
     const out = new URL(callbackURL);
     out.searchParams.set("error", error);
+    if (description)
+      out.searchParams.set("error_description", description.slice(0, 240));
     return out.toString();
   };
 
-  const upsertGoogleUserAndSession = async (profile: {
-    sub: string;
-    email: string;
-    emailVerified: boolean;
-    name?: string;
-    picture?: string;
-  }, request: any) => {
+  const getMobileOAuthStateSecret = () =>
+    process.env.BETTER_AUTH_SECRET ||
+    process.env.AUTH_SECRET ||
+    process.env.GOOGLE_CLIENT_SECRET ||
+    process.env.GOOGLE_CLIENT_ID ||
+    "childcosts-dev-only-state-secret";
+
+  const toBase64Url = (value: string | Buffer) =>
+    Buffer.from(value).toString("base64url");
+
+  const signMobileStatePayload = (payloadB64: string) =>
+    createHmac("sha256", getMobileOAuthStateSecret())
+      .update(payloadB64)
+      .digest("base64url");
+
+  const createMobileOAuthState = (callbackURL: string) => {
+    const payload = {
+      cb: callbackURL,
+      nonce: randomBytes(16).toString("base64url"),
+      exp: Date.now() + 10 * 60 * 1000,
+    };
+    const payloadB64 = toBase64Url(JSON.stringify(payload));
+    const signature = signMobileStatePayload(payloadB64);
+    return `v1.${payloadB64}.${signature}`;
+  };
+
+  const parseMobileOAuthState = (state?: string) => {
+    if (!state) return null;
+    const parts = state.split(".");
+    if (parts.length !== 3 || parts[0] !== "v1") return null;
+
+    const [, payloadB64, signature] = parts;
+    const expected = signMobileStatePayload(payloadB64);
+    const actualBuf = Buffer.from(signature);
+    const expectedBuf = Buffer.from(expected);
+    if (
+      actualBuf.length !== expectedBuf.length ||
+      !timingSafeEqual(actualBuf, expectedBuf)
+    ) {
+      return null;
+    }
+
+    try {
+      const payload = JSON.parse(
+        Buffer.from(payloadB64, "base64url").toString("utf8"),
+      );
+      if (
+        !payload ||
+        typeof payload.cb !== "string" ||
+        typeof payload.exp !== "number"
+      ) {
+        return null;
+      }
+      if (payload.exp < Date.now()) return null;
+      return { callbackURL: safeMobileCallbackURL(payload.cb) };
+    } catch {
+      return null;
+    }
+  };
+
+  const decodeJwtPayload = (jwt?: string) => {
+    if (!jwt || typeof jwt !== "string") return null;
+    const parts = jwt.split(".");
+    if (parts.length < 2) return null;
+    try {
+      return JSON.parse(Buffer.from(parts[1], "base64url").toString("utf8"));
+    } catch {
+      return null;
+    }
+  };
+
+  const booleanFromGoogle = (value: unknown) =>
+    value === true || value === "true" || value === "1";
+
+  const upsertGoogleUserAndSession = async (
+    profile: {
+      sub: string;
+      email: string;
+      emailVerified: boolean;
+      name?: string;
+      picture?: string;
+    },
+    request: any,
+  ) => {
     const now = new Date();
     const existingUsers = await app.db
       .select()
@@ -89,7 +179,8 @@ export function registerAuthRoutes(app: App) {
         .set({
           name: profile.name || existingUsers[0].name,
           image: profile.picture || existingUsers[0].image,
-          emailVerified: profile.emailVerified || existingUsers[0].emailVerified,
+          emailVerified:
+            profile.emailVerified || existingUsers[0].emailVerified,
           updatedAt: now,
         })
         .where(eq(user.id, userId));
@@ -99,7 +190,10 @@ export function registerAuthRoutes(app: App) {
       .select()
       .from(account)
       .where(
-        and(eq(account.providerId, "google"), eq(account.accountId, profile.sub)),
+        and(
+          eq(account.providerId, "google"),
+          eq(account.accountId, profile.sub),
+        ),
       )
       .limit(1);
 
@@ -146,33 +240,22 @@ export function registerAuthRoutes(app: App) {
   app.fastify.get<{
     Querystring: { callbackURL?: string };
   }>("/api/auth/mobile-google/start", async (request, reply) => {
+    const callbackURL = safeMobileCallbackURL(request.query.callbackURL);
     const clientId = process.env.GOOGLE_CLIENT_ID;
-    if (!clientId) {
-      reply.code(500).type("text/plain; charset=utf-8");
-      return "GOOGLE_CLIENT_ID is not configured.";
+    const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+    if (!clientId || !clientSecret) {
+      return reply
+        .code(302)
+        .header(
+          "Location",
+          appendOAuthError(callbackURL, "missing_google_oauth_credentials"),
+        )
+        .send();
     }
 
     const baseURL = getPublicBaseUrl(request);
     const redirectURI = `${baseURL}${mobileGoogleRedirectPath}`;
-    const callbackURL = safeMobileCallbackURL(request.query.callbackURL);
-    const state = randomBytes(24).toString("base64url");
-    const now = new Date();
-
-    try {
-      await app.db.insert(verification).values({
-        id: randomUUID(),
-        identifier: `${mobileGoogleStatePrefix}${state}`,
-        value: JSON.stringify({ callbackURL, redirectURI }),
-        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-        createdAt: now,
-        updatedAt: now,
-      });
-      app.logger.info({ statePrefix: state.slice(0, 8), redirectURI, callbackURL }, "mobile-google/start: state stored");
-    } catch (err: any) {
-      app.logger.error({ err: err?.message }, "mobile-google/start: failed to store state");
-      reply.code(500).type("text/plain; charset=utf-8");
-      return `Failed to store OAuth state: ${err?.message || String(err)}`;
-    }
+    const state = createMobileOAuthState(callbackURL);
 
     const google = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     google.searchParams.set("client_id", clientId);
@@ -195,45 +278,50 @@ export function registerAuthRoutes(app: App) {
 
     try {
       if (request.query.error) {
-        return reply.code(302).header("Location", appendOAuthError(callbackURL, request.query.error)).send();
+        return reply
+          .code(302)
+          .header(
+            "Location",
+            appendOAuthError(callbackURL, request.query.error),
+          )
+          .send();
       }
 
       const state = request.query.state;
       const code = request.query.code;
       if (!state || !code) {
-        return reply.code(302).header("Location", appendOAuthError(callbackURL, "missing_google_code_or_state")).send();
+        return reply
+          .code(302)
+          .header(
+            "Location",
+            appendOAuthError(callbackURL, "missing_google_code_or_state"),
+          )
+          .send();
       }
 
-      const records = await app.db
-        .select()
-        .from(verification)
-        .where(eq(verification.identifier, `${mobileGoogleStatePrefix}${state}`))
-        .limit(1);
-
-      const record = records[0];
-      app.logger.info(
-        {
-          statePrefix: state.slice(0, 8),
-          found: !!record,
-          expired: record ? record.expiresAt.getTime() < Date.now() : null,
-        },
-        "mobile-google/callback: state lookup",
-      );
-      if (!record || record.expiresAt.getTime() < Date.now()) {
-        return reply.code(302).header("Location", appendOAuthError(callbackURL, "expired_or_invalid_google_state")).send();
+      const parsedState = parseMobileOAuthState(state);
+      if (!parsedState) {
+        return reply
+          .code(302)
+          .header(
+            "Location",
+            appendOAuthError(callbackURL, "expired_or_invalid_google_state"),
+          )
+          .send();
       }
 
-      try {
-        const saved = JSON.parse(record.value);
-        callbackURL = safeMobileCallbackURL(saved.callbackURL);
-      } catch {}
-
-      await app.db.delete(verification).where(eq(verification.id, record.id));
+      callbackURL = parsedState.callbackURL;
 
       const clientId = process.env.GOOGLE_CLIENT_ID;
       const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
       if (!clientId || !clientSecret) {
-        return reply.code(302).header("Location", appendOAuthError(callbackURL, "missing_google_oauth_credentials")).send();
+        return reply
+          .code(302)
+          .header(
+            "Location",
+            appendOAuthError(callbackURL, "missing_google_oauth_credentials"),
+          )
+          .send();
       }
 
       const redirectURI = `${getPublicBaseUrl(request)}${mobileGoogleRedirectPath}`;
@@ -250,33 +338,99 @@ export function registerAuthRoutes(app: App) {
       });
 
       const tokenJson: any = await tokenResponse.json().catch(() => ({}));
-      if (!tokenResponse.ok || !tokenJson.id_token) {
-        app.logger.warn({ status: tokenResponse.status, tokenJson }, "Google token exchange failed");
-        return reply.code(302).header("Location", appendOAuthError(callbackURL, "google_token_exchange_failed")).send();
+      if (!tokenResponse.ok || !tokenJson.id_token || !tokenJson.access_token) {
+        const reason = tokenJson?.error || `http_${tokenResponse.status}`;
+        app.logger.warn(
+          { status: tokenResponse.status, tokenJson, redirectURI },
+          "Google token exchange failed",
+        );
+        return reply
+          .code(302)
+          .header(
+            "Location",
+            appendOAuthError(
+              callbackURL,
+              "google_token_exchange_failed",
+              reason,
+            ),
+          )
+          .send();
       }
 
-      const infoResponse = await fetch(
-        `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(tokenJson.id_token)}`,
+      // Verify the ID token audience/issuer/expiry locally and use the Google
+      // userinfo endpoint for profile fields. This avoids depending on the
+      // tokeninfo debug endpoint for ordinary sign-in while still rejecting
+      // tokens issued for another OAuth client.
+      const idPayload: any = decodeJwtPayload(tokenJson.id_token);
+      const validIssuer =
+        idPayload?.iss === "https://accounts.google.com" ||
+        idPayload?.iss === "accounts.google.com";
+      const validAudience = idPayload?.aud === clientId;
+      const validExpiry =
+        typeof idPayload?.exp === "number" &&
+        idPayload.exp * 1000 > Date.now() - 60_000;
+      if (!idPayload?.sub || !validIssuer || !validAudience || !validExpiry) {
+        app.logger.warn(
+          { idPayload },
+          "Google id_token local validation failed",
+        );
+        return reply
+          .code(302)
+          .header(
+            "Location",
+            appendOAuthError(
+              callbackURL,
+              "google_identity_verification_failed",
+              "invalid_id_token",
+            ),
+          )
+          .send();
+      }
+
+      const userInfoResponse = await fetch(
+        "https://openidconnect.googleapis.com/v1/userinfo",
+        {
+          headers: { Authorization: `Bearer ${tokenJson.access_token}` },
+        },
       );
-      const info: any = await infoResponse.json().catch(() => ({}));
+      const userInfo: any = await userInfoResponse.json().catch(() => ({}));
       if (
-        !infoResponse.ok ||
-        info.aud !== clientId ||
-        !info.sub ||
-        !info.email ||
-        info.email_verified !== "true"
+        !userInfoResponse.ok ||
+        userInfo.sub !== idPayload.sub ||
+        !userInfo.email
       ) {
-        app.logger.warn({ status: infoResponse.status, info }, "Google id_token verification failed");
-        return reply.code(302).header("Location", appendOAuthError(callbackURL, "google_identity_verification_failed")).send();
+        app.logger.warn(
+          { status: userInfoResponse.status, userInfo },
+          "Google userinfo request failed",
+        );
+        return reply
+          .code(302)
+          .header(
+            "Location",
+            appendOAuthError(callbackURL, "google_userinfo_failed"),
+          )
+          .send();
+      }
+
+      if (
+        !booleanFromGoogle(userInfo.email_verified ?? idPayload.email_verified)
+      ) {
+        return reply
+          .code(302)
+          .header(
+            "Location",
+            appendOAuthError(callbackURL, "google_email_not_verified"),
+          )
+          .send();
       }
 
       const sessionToken = await upsertGoogleUserAndSession(
         {
-          sub: info.sub,
-          email: info.email,
+          sub: userInfo.sub,
+          email: userInfo.email,
           emailVerified: true,
-          name: info.name,
-          picture: info.picture,
+          name: userInfo.name || idPayload.name,
+          picture: userInfo.picture || idPayload.picture,
         },
         request,
       );
@@ -287,11 +441,37 @@ export function registerAuthRoutes(app: App) {
       reply.header("Cache-Control", "no-store");
       return reply.code(302).header("Location", out.toString()).send();
     } catch (error: any) {
-      app.logger.error({ err: error?.message || error }, "Mobile Google OAuth callback failed");
-      return reply.code(302).header("Location", appendOAuthError(callbackURL, "mobile_google_oauth_failed")).send();
+      app.logger.error(
+        { err: error?.message || error },
+        "Mobile Google OAuth callback failed",
+      );
+      return reply
+        .code(302)
+        .header(
+          "Location",
+          appendOAuthError(callbackURL, "mobile_google_oauth_failed"),
+        )
+        .send();
     }
   });
 
+  // GET /api/auth/mobile-session
+  // Cookie/Bearer-token fallback for the custom mobile Google OAuth route.
+  // It returns the same useful shape as Better Auth's get-session response,
+  // but it validates directly against the session table, so it is not affected
+  // by browser cookie isolation or Better Auth client-cookie cache issues.
+  app.fastify.get("/api/auth/mobile-session", async (request, reply) => {
+    const result = await getDbSessionFromRequest(app, request);
+    if (!result) {
+      reply.code(200);
+      return null;
+    }
+
+    return {
+      session: result.session,
+      user: result.user,
+    };
+  });
 
   // GET /api/auth/mobile-social/:provider?callbackURL=...
   //
@@ -307,7 +487,8 @@ export function registerAuthRoutes(app: App) {
     Querystring: { callbackURL?: string };
   }>("/api/auth/mobile-social/:provider", async (request, reply) => {
     const { provider } = request.params;
-    const callbackURL = request.query.callbackURL || "childcosts://auth-callback";
+    const callbackURL =
+      request.query.callbackURL || "childcosts://auth-callback";
     const allowed = new Set(["google", "apple", "github"]);
     if (!allowed.has(provider)) {
       reply.code(400).type("text/plain; charset=utf-8");
@@ -564,6 +745,12 @@ export function registerAuthRoutes(app: App) {
         BETTER_AUTH_URL: process.env.BETTER_AUTH_URL || null,
         BACKEND_URL: process.env.BACKEND_URL || null,
         SERVICE_URL: process.env.SERVICE_URL || null,
+        expectedMobileGoogleRedirectUri: `${
+          process.env.BETTER_AUTH_URL ||
+          process.env.BACKEND_URL ||
+          process.env.SERVICE_URL ||
+          `https://${request.headers.host}`
+        }${mobileGoogleRedirectPath}`,
         // List ALL env var names so we can spot what Natively actually
         // injects under (e.g. PUBLIC_URL, APP_URL, etc.).
         allEnvNames: Object.keys(process.env).sort(),
@@ -608,7 +795,7 @@ export function registerAuthRoutes(app: App) {
   // Permanently delete the authenticated user's account and all data they created.
   // Required for Apple Guideline 5.1.1(v) and Google Play account-deletion policy.
   app.fastify.delete("/api/auth/account", async (request, reply) => {
-    const sess = await app.requireAuth()(request, reply);
+    const sess = await requireAnyAuth(app, request, reply);
     if (!sess) return;
 
     const userId = sess.user.id;
