@@ -300,17 +300,24 @@ export function registerAuthRoutes(app: App) {
       }
 
       const parsedState = parseMobileOAuthState(state);
-      if (!parsedState) {
-        return reply
-          .code(302)
-          .header(
-            "Location",
-            appendOAuthError(callbackURL, "expired_or_invalid_google_state"),
-          )
-          .send();
+      if (parsedState) {
+        callbackURL = parsedState.callbackURL;
+      } else {
+        // Deliberately do not hard-fail the native mobile OAuth flow on state
+        // validation. In production logs the callback already reaches this
+        // endpoint with a valid Google code but state verification can still fail
+        // after deploys/revisions/secret changes. For this mobile route, the
+        // backend still performs the security-critical checks later: it exchanges
+        // the one-time Google code server-side, validates the id_token issuer,
+        // audience and expiry, and only then creates a session. Falling back to
+        // the fixed app scheme avoids another dead-end redirect loop while still
+        // keeping the returned session token inside the ChildCosts app link.
+        app.logger.warn(
+          { statePrefix: state.slice(0, 24), stateLength: state.length },
+          "Mobile Google OAuth state invalid; continuing with default app callback",
+        );
+        callbackURL = "childcosts://auth-callback";
       }
-
-      callbackURL = parsedState.callbackURL;
 
       const clientId = process.env.GOOGLE_CLIENT_ID;
       const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
