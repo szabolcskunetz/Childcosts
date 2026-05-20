@@ -41,7 +41,7 @@ GET /api/auth/get-session
 Keep this Authorized redirect URI configured:
 
 ```text
-https://prod-proj-rbwzuzgnbjla5whlal77n-liwg5h36mq-ey.a.run.app/api/auth/mobile-google/callback
+https://spx6cgn7eucdtqd2deq8jn96wpw5b83b.app.specular.dev/api/auth/mobile-google/callback
 ```
 
 ## Expected next debug result

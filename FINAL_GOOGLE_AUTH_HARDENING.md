@@ -36,7 +36,7 @@ This package hardens the mobile Google sign-in path end-to-end.
 
 The following redirect URI must be present in Google Cloud Console:
 
-`https://prod-proj-rbwzuzgnbjla5whlal77n-liwg5h36mq-ey.a.run.app/api/auth/mobile-google/callback`
+`https://spx6cgn7eucdtqd2deq8jn96wpw5b83b.app.specular.dev/api/auth/mobile-google/callback`
 
 You can verify the backend's expected URI at:
 
