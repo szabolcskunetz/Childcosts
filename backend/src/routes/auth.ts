@@ -158,14 +158,21 @@ export function registerAuthRoutes(app: App) {
     const state = randomBytes(24).toString("base64url");
     const now = new Date();
 
-    await app.db.insert(verification).values({
-      id: randomUUID(),
-      identifier: `${mobileGoogleStatePrefix}${state}`,
-      value: JSON.stringify({ callbackURL, redirectURI }),
-      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
-      createdAt: now,
-      updatedAt: now,
-    });
+    try {
+      await app.db.insert(verification).values({
+        id: randomUUID(),
+        identifier: `${mobileGoogleStatePrefix}${state}`,
+        value: JSON.stringify({ callbackURL, redirectURI }),
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+        createdAt: now,
+        updatedAt: now,
+      });
+      app.logger.info({ statePrefix: state.slice(0, 8), redirectURI, callbackURL }, "mobile-google/start: state stored");
+    } catch (err: any) {
+      app.logger.error({ err: err?.message }, "mobile-google/start: failed to store state");
+      reply.code(500).type("text/plain; charset=utf-8");
+      return `Failed to store OAuth state: ${err?.message || String(err)}`;
+    }
 
     const google = new URL("https://accounts.google.com/o/oauth2/v2/auth");
     google.searchParams.set("client_id", clientId);
@@ -204,6 +211,14 @@ export function registerAuthRoutes(app: App) {
         .limit(1);
 
       const record = records[0];
+      app.logger.info(
+        {
+          statePrefix: state.slice(0, 8),
+          found: !!record,
+          expired: record ? record.expiresAt.getTime() < Date.now() : null,
+        },
+        "mobile-google/callback: state lookup",
+      );
       if (!record || record.expiresAt.getTime() < Date.now()) {
         return reply.code(302).header("Location", appendOAuthError(callbackURL, "expired_or_invalid_google_state")).send();
       }
