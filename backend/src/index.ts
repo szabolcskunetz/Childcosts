@@ -24,6 +24,7 @@ import { registerExpensesRoutes } from "./routes/expenses.js";
 import { registerSettlementsRoutes } from "./routes/settlements.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerProjectsRoutes } from "./routes/projects.js";
+import { attachSessionCookieFromBearer } from "./utils/mobile-auth.js";
 
 // Combine schemas
 const schema = { ...appSchema, ...authSchema };
@@ -278,6 +279,15 @@ app.fastify.addHook("onRequest", async (request) => {
 
 // Store sign-in email for resending verification if needed
 const signInEmailStore = new Map<string, string>();
+
+// Add hook to normalize mobile Bearer tokens into Better Auth cookie headers.
+// This lets manually-created mobile sessions work with Better Auth endpoints
+// and with routes that still call app.requireAuth().
+app.fastify.addHook("onRequest", async (request) => {
+  if (request.url.startsWith("/api/")) {
+    attachSessionCookieFromBearer(request);
+  }
+});
 
 // Add hook to capture email from sign-in requests
 app.fastify.addHook("onRequest", async (request, reply) => {
