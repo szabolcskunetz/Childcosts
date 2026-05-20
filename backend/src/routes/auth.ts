@@ -177,7 +177,7 @@ export function registerAuthRoutes(app: App) {
     google.searchParams.set("prompt", "select_account");
 
     reply.header("Cache-Control", "no-store");
-    reply.redirect(302, google.toString());
+    return reply.code(302).header("Location", google.toString()).send();
   });
 
   // GET /api/auth/mobile-google/callback?code=...&state=...
@@ -188,15 +188,13 @@ export function registerAuthRoutes(app: App) {
 
     try {
       if (request.query.error) {
-        reply.redirect(302, appendOAuthError(callbackURL, request.query.error));
-        return "";
+        return reply.code(302).header("Location", appendOAuthError(callbackURL, request.query.error)).send();
       }
 
       const state = request.query.state;
       const code = request.query.code;
       if (!state || !code) {
-        reply.redirect(302, appendOAuthError(callbackURL, "missing_google_code_or_state"));
-        return "";
+        return reply.code(302).header("Location", appendOAuthError(callbackURL, "missing_google_code_or_state")).send();
       }
 
       const records = await app.db
@@ -207,8 +205,7 @@ export function registerAuthRoutes(app: App) {
 
       const record = records[0];
       if (!record || record.expiresAt.getTime() < Date.now()) {
-        reply.redirect(302, appendOAuthError(callbackURL, "expired_or_invalid_google_state"));
-        return "";
+        return reply.code(302).header("Location", appendOAuthError(callbackURL, "expired_or_invalid_google_state")).send();
       }
 
       try {
@@ -221,8 +218,7 @@ export function registerAuthRoutes(app: App) {
       const clientId = process.env.GOOGLE_CLIENT_ID;
       const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
       if (!clientId || !clientSecret) {
-        reply.redirect(302, appendOAuthError(callbackURL, "missing_google_oauth_credentials"));
-        return "";
+        return reply.code(302).header("Location", appendOAuthError(callbackURL, "missing_google_oauth_credentials")).send();
       }
 
       const redirectURI = `${getPublicBaseUrl(request)}${mobileGoogleRedirectPath}`;
@@ -241,8 +237,7 @@ export function registerAuthRoutes(app: App) {
       const tokenJson: any = await tokenResponse.json().catch(() => ({}));
       if (!tokenResponse.ok || !tokenJson.id_token) {
         app.logger.warn({ status: tokenResponse.status, tokenJson }, "Google token exchange failed");
-        reply.redirect(302, appendOAuthError(callbackURL, "google_token_exchange_failed"));
-        return "";
+        return reply.code(302).header("Location", appendOAuthError(callbackURL, "google_token_exchange_failed")).send();
       }
 
       const infoResponse = await fetch(
@@ -257,8 +252,7 @@ export function registerAuthRoutes(app: App) {
         info.email_verified !== "true"
       ) {
         app.logger.warn({ status: infoResponse.status, info }, "Google id_token verification failed");
-        reply.redirect(302, appendOAuthError(callbackURL, "google_identity_verification_failed"));
-        return "";
+        return reply.code(302).header("Location", appendOAuthError(callbackURL, "google_identity_verification_failed")).send();
       }
 
       const sessionToken = await upsertGoogleUserAndSession(
@@ -276,12 +270,10 @@ export function registerAuthRoutes(app: App) {
       out.searchParams.set("token", sessionToken);
       out.searchParams.set("cookieName", betterAuthSessionCookieName);
       reply.header("Cache-Control", "no-store");
-      reply.redirect(302, out.toString());
-      return "";
+      return reply.code(302).header("Location", out.toString()).send();
     } catch (error: any) {
       app.logger.error({ err: error?.message || error }, "Mobile Google OAuth callback failed");
-      reply.redirect(302, appendOAuthError(callbackURL, "mobile_google_oauth_failed"));
-      return "";
+      return reply.code(302).header("Location", appendOAuthError(callbackURL, "mobile_google_oauth_failed")).send();
     }
   });
 
