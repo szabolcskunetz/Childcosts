@@ -66,7 +66,7 @@ app.withAuth({
         // Send the verification email
         resend.emails
           .send({
-            from: "Child Expense Tracker <noreply@example.com>",
+            from: process.env.EMAIL_FROM || "ChildCosts <noreply@childcosts.app>",
             to: user.email,
             subject: "Verify your email address",
             html: `
@@ -136,7 +136,7 @@ app.withAuth({
         // Send the password reset email
         resend.emails
           .send({
-            from: "Child Expense Tracker <noreply@example.com>",
+            from: process.env.EMAIL_FROM || "ChildCosts <noreply@childcosts.app>",
             to: user.email,
             subject: "Reset your password",
             html: `
@@ -656,7 +656,7 @@ app.fastify.addHook("onSend", async (request, reply, payload) => {
                 if (!foundUser.emailVerified) {
                   // Send verification email using Resend
                   const verificationEmailResult = await resend.emails.send({
-                    from: "Child Expense Tracker <noreply@example.com>",
+                    from: process.env.EMAIL_FROM || "ChildCosts <noreply@childcosts.app>",
                     to: email,
                     subject: "Verify your email address",
                     html: `
@@ -971,7 +971,7 @@ app.fastify.setErrorHandler(async (error: any, request, reply) => {
               if (!foundUser.emailVerified) {
                 // Send verification email using Resend
                 const verificationEmailResult = await resend.emails.send({
-                  from: "Child Expense Tracker <noreply@example.com>",
+                  from: process.env.EMAIL_FROM || "ChildCosts <noreply@childcosts.app>",
                   to: email,
                   subject: "Verify your email address",
                   html: `

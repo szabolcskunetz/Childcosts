@@ -55,18 +55,11 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
       } else if (list.length > 0) {
         nextActive = list[0].id;
         await persistActiveId(nextActive);
-      } else {
-        // No projects exist yet — create a default "Marci" so the user has something to start with
-        try {
-          const creatorId = user?.id || localUserId || null;
-          const created = await projectsApi.create('Marci', creatorId);
-          setProjects([created]);
-          nextActive = created.id;
-          await persistActiveId(nextActive);
-        } catch (e: any) {
-          console.warn('[ProjectContext] Could not create default project:', e?.message);
-        }
       }
+      // If list.length === 0 we leave activeProjectId as null. The
+      // Projects screen handles the empty state and prompts the user
+      // to create their first project. Auto-seeding a sample project
+      // was removed so the app starts clean for every new user.
       setActiveProjectIdState(nextActive);
     } catch (e: any) {
       console.error('[ProjectContext] Failed to load projects:', e);

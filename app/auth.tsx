@@ -119,7 +119,7 @@ export default function AuthScreen() {
           break;
         
         case "INVALID_EMAIL":
-          displayMessage = "⚠️ Invalid Email\n\nPlease enter a valid email address (e.g., user@example.com).";
+          displayMessage = "⚠️ Invalid Email\n\nPlease enter a valid email address.";
           break;
         
         case "BAD_REQUEST":
