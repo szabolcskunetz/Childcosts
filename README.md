@@ -6,6 +6,6 @@ Made with 💙 for creativity.
 
 ## License & Copyright
 
-Copyright © 2026 Kunetz Szabolcs. All rights reserved.
+Copyright © 2026 dr. Kunetz Szabolcs. All rights reserved.
 
 This software is the intellectual property of Kunetz Szabolcs. See [COPYRIGHT.txt](./COPYRIGHT.txt) for details.
