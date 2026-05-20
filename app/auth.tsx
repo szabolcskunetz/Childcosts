@@ -340,21 +340,6 @@ export default function AuthScreen() {
             </TouchableOpacity>
           )}
 
-          {/* DIAGNOSTIC: shows which backend URL this build will call.
-              Remove once Google sign-in is confirmed working. */}
-          <Text
-            selectable
-            style={{
-              marginTop: 16,
-              fontSize: 10,
-              color: '#888',
-              textAlign: 'center',
-              fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-            }}
-          >
-            backend: {Constants.expoConfig?.extra?.backendUrl || '(unset)'}
-          </Text>
-
           <TouchableOpacity
             style={styles.skipButton}
             onPress={() => router.back()}
